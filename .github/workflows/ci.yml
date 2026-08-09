@@ -1,17 +1,28 @@
 name: CI
 
+# One workflow, so a change is tested exactly once per event.
+#
+# A pull request is verified by the `pull_request` trigger alone — pushing to a
+# branch does not start a second identical run. `main` is only ever written by a
+# squash merge, and that push is what tests the merged result and, if the version
+# moved, ships it.
 on:
-  push:
-    branches: ['**']
   pull_request:
+  push:
+    branches: [main]
   workflow_dispatch:
 
+# Superseding a pull request cancels its earlier run. A push to `main` is never
+# cancelled: it may be midway through publishing a release.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
 
 jobs:
-  build:
+  test:
     name: build & test (node ${{ matrix.node }})
     runs-on: ubuntu-latest
     strategy:
@@ -61,3 +72,110 @@ jobs:
             console.log(\`package: \${pkg.entryCount} files, \${mb.toFixed(2)} MB\`);
             if (mb > 2) { console.error('Package exceeds 2 MB'); process.exit(1); }
           "
+
+  # Cheap gate so the expensive release job only starts when there is something
+  # to release. The version in package.json is the trigger: merge a version bump
+  # and the release happens, merge anything else and it does not.
+  release-gate:
+    name: release gate
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.check.outputs.publish }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Decide whether this commit releases
+        id: check
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+
+          # Fail loudly on a malformed version rather than tagging something
+          # unusable. This also keeps the value safe to write to $GITHUB_OUTPUT,
+          # which is line-oriented.
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "package.json version '${VERSION}' is not a plain semver string." >&2
+            exit 1
+          fi
+
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+          if git rev-parse "refs/tags/v${VERSION}" >/dev/null 2>&1; then
+            echo "v${VERSION} is already tagged — nothing to release."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "package.json is at ${VERSION} and v${VERSION} is not tagged — releasing."
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  release:
+    name: release
+    needs: release-gate
+    if: needs.release-gate.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the tag and the GitHub release
+      id-token: write # mint the OIDC token npm trusted publishing needs
+    env:
+      VERSION: ${{ needs.release-gate.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+          # Never cache in a release build: the published artifact must come
+          # from a resolution this job performed itself.
+          package-manager-cache: false
+
+      - name: Use an npm that speaks trusted publishing
+        run: npm install -g npm@latest
+
+      - run: npm ci
+
+      # The suite is deliberately not re-run here. This job only starts once
+      # `test` is green on this exact commit across Node 18, 20 and 22, so a
+      # fourth run would cost minutes and prove nothing new.
+      - name: Build
+        run: npm run build
+
+      - name: Publish to npm
+        # No NPM_TOKEN: authentication is the OIDC token minted above, which npm
+        # accepts because this repository and workflow are registered as a
+        # trusted publisher for the package. Provenance is attached from the
+        # same identity.
+        run: npm publish --provenance --access public
+
+      - name: Build standalone binaries
+        run: npm run build:binaries
+
+      - name: Package archives and compute checksums
+        run: |
+          mkdir -p release-assets
+          TAG="v${VERSION}"
+
+          tar -czvf "release-assets/gelada-${TAG}-darwin-x64.tar.gz"   -C dist/binaries gelada-darwin-x64
+          tar -czvf "release-assets/gelada-${TAG}-darwin-arm64.tar.gz" -C dist/binaries gelada-darwin-arm64
+          tar -czvf "release-assets/gelada-${TAG}-linux-x64.tar.gz"    -C dist/binaries gelada-linux-x64
+          tar -czvf "release-assets/gelada-${TAG}-linux-arm64.tar.gz"  -C dist/binaries gelada-linux-arm64
+          (cd dist/binaries && zip "../../release-assets/gelada-${TAG}-win-x64.zip" gelada-win-x64.exe)
+
+          cd release-assets
+          sha256sum gelada-${TAG}-* > checksums.txt
+          cat checksums.txt
+
+      - name: Create the tag and the GitHub release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v${{ env.VERSION }}
+          name: v${{ env.VERSION }}
+          target_commitish: ${{ github.sha }}
+          generate_release_notes: true
+          files: |
+            release-assets/*
+            install.sh

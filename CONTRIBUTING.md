@@ -104,6 +104,39 @@ GitHub applies it automatically. Keep its headings; fill in every section:
 A pull request that leaves sections empty, or fills them with "n/a" without
 explanation, will be sent back before anyone reads the code.
 
+## Releasing
+
+There is no release ritual. **The version in `package.json` is the trigger.**
+
+Open a pull request that bumps the version and updates `CHANGELOG.md`. When it
+merges to `main`, the pipeline notices that the new version has no matching
+`v*` tag and, only then, releases: it publishes to npm with provenance, builds
+the five standalone binaries, computes checksums, creates the tag, and attaches
+everything to a GitHub release. Merge anything that does not touch the version
+and none of that runs.
+
+Nothing needs to be tagged or published by hand. Do not create `v*` tags
+yourself — the pipeline creates them, and a tag that already exists is exactly
+what tells it there is nothing to release.
+
+The whole pipeline is one workflow ([`.github/workflows/ci.yml`](.github/workflows/ci.yml))
+so that a single change is tested exactly once: pull requests are verified by
+the `pull_request` event, and pushes are restricted to `main`. Adding a second
+workflow, or widening the push trigger to all branches, brings back the
+duplicate runs this consolidation removed.
+
+### One-time setup: npm trusted publishing
+
+Publishing authenticates with a short-lived OIDC token rather than a stored
+`NPM_TOKEN`, so there is no publish credential in this repository to leak or
+rotate. This requires the package to be configured once on npm:
+
+**npmjs.com → `gelada-mcp` → Settings → Trusted publishers → GitHub Actions**,
+with organization/repository `pcherkasov/gelada-mcp` and workflow `ci.yml`.
+
+Until that is configured, the publish step fails with an authentication error
+while everything before it still succeeds.
+
 ## Reporting security issues
 
 Do not open a public pull request or issue for a vulnerability. Follow

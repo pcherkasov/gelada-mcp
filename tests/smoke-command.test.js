@@ -15,14 +15,26 @@ import { createMockAgyScript } from './helpers/e2e-env.js';
  * that changes nothing does not.
  */
 describe('gelada smoke', () => {
+  let tmpRoot;
   let workDir;
   let dataDir;
   let oldAgy;
   let oldDataDir;
+  let oldTmpDir;
 
   beforeEach(async () => {
     oldAgy = process.env.AGY_COMMAND;
     oldDataDir = process.env.GELADA_DATA_DIR;
+    oldTmpDir = process.env.TMPDIR;
+
+    // Give this test its own temporary root. `runSmokeTest` places its throwaway
+    // repository in os.tmpdir(), which on POSIX is whatever TMPDIR points at, so
+    // redirecting it means the cleanup assertion below observes only what this
+    // test caused — not whatever else on the machine happens to be writing
+    // `gelada-smoke-*` directories into the shared /tmp at the same moment.
+    tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'gelada-smoke-root-'));
+    process.env.TMPDIR = tmpRoot;
+
     workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'gelada-smoke-test-'));
     dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'gelada-smoke-data-'));
     process.env.GELADA_DATA_DIR = dataDir;
@@ -34,9 +46,11 @@ describe('gelada smoke', () => {
     else delete process.env.AGY_COMMAND;
     if (oldDataDir !== undefined) process.env.GELADA_DATA_DIR = oldDataDir;
     else delete process.env.GELADA_DATA_DIR;
+    if (oldTmpDir !== undefined) process.env.TMPDIR = oldTmpDir;
+    else delete process.env.TMPDIR;
     resetWorkerModelCatalogCache();
 
-    for (const dir of [workDir, dataDir]) {
+    for (const dir of [workDir, dataDir, tmpRoot]) {
       if (dir) await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
     }
   });
