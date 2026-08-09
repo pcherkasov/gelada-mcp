@@ -1,8 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+
+import { packagePath } from '../utils/package-paths.js';
 
 /**
  * The leader-agent guidance in docs/instructions/ used to be markdown that only
@@ -71,9 +72,7 @@ export const INSTRUCTION_RESOURCES: InstructionResource[] = [
  * working directory, so the resources resolve wherever the package is installed.
  */
 export function instructionsDir(): string {
-  const here = fileURLToPath(import.meta.url);
-  // dist/resources/index.js -> package root
-  return path.resolve(here, '../../../docs/instructions');
+  return packagePath('docs', 'instructions');
 }
 
 export function readInstruction(slug: string): string | undefined {

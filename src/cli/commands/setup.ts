@@ -1,13 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
 import * as readline from 'node:readline/promises';
 
 import { getConfigDir, getConfigPath, getDataDir, getLogDir } from '../utils/paths.js';
 import { runDiagnostics } from './doctor.js';
 import { runSmokeTest } from './smoke.js';
+import { packagePath } from '../../utils/package-paths.js';
 
 export interface GeladaConfigSchema {
   version: string;
@@ -153,15 +153,9 @@ export function resolveServerLaunchCommand(): { command: string; args: string[] 
     return { command: process.execPath, args: ['mcp', 'serve'] };
   }
 
-  try {
-    const here = fileURLToPath(import.meta.url);
-    // dist/cli/commands/setup.js -> package root
-    const binPath = path.resolve(here, '../../../../bin/gelada.js');
-    if (fs.existsSync(binPath)) {
-      return { command: process.execPath, args: [binPath, 'mcp', 'serve'] };
-    }
-  } catch {
-    // Fall through to the PATH-based form below.
+  const binPath = packagePath('bin', 'gelada.js');
+  if (fs.existsSync(binPath)) {
+    return { command: process.execPath, args: [binPath, 'mcp', 'serve'] };
   }
 
   return { command: 'gelada', args: ['mcp', 'serve'] };

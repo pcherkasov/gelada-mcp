@@ -82,9 +82,12 @@ know *when* delegation pays off.
 
 ## Milestone 4 — Release
 
-- [ ] Test suite green on CI for every push and pull request
-- [ ] Deterministic worker stub so end-to-end tests need no network or model
-- [ ] Publish to npm, tag `v0.1.0`, working `install.sh`
+- [x] Test suite green on CI for every push and pull request (Node 18, 20, 22)
+- [x] Deterministic worker stub so end-to-end tests need no network or model
+- [ ] Publish to npm and tag `v0.1.0`
+
+Standalone binaries build via `npm run build:binaries`, but that channel has not
+been exercised end to end yet — `npm` is the supported way to install 0.1.0.
 
 ## Beyond 0.1
 
