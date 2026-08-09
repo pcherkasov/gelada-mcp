@@ -17,6 +17,7 @@ import { WorktreeManager } from '../dist/components/worktree-manager.js';
 import { AntigravityDriver } from '../dist/components/worker-driver.js';
 import { ProcessSupervisor } from '../dist/components/process-supervisor.js';
 import { VerificationEngine } from '../dist/components/verification-engine.js';
+import { ModelRouter } from '../dist/components/model-router.js';
 import { registerDelegateTaskTool } from '../dist/tools/delegate-task.js';
 import { registerInspectTaskTool } from '../dist/tools/inspect-task.js';
 import { registerReviseTaskTool } from '../dist/tools/revise-task.js';
@@ -64,6 +65,7 @@ describe('Requirement R3 Granular Task Lifecycle States Unit Tests', () => {
       workerDriver,
       processSupervisor,
       verificationEngine,
+      modelRouter: new ModelRouter(),
     };
 
     registeredTools = new Map();

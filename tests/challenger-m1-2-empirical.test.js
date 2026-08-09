@@ -8,6 +8,7 @@ import { execSync } from 'node:child_process';
 import { createGeladaServer } from '../dist/server.js';
 import { registerDelegateTaskTool } from '../dist/tools/delegate-task.js';
 import { registerReviseTaskTool } from '../dist/tools/revise-task.js';
+import { settleHandler } from './helpers/agy-mock.js';
 
 describe('Challenger 2 Empirical Edge Case Tests', () => {
   let tempRepoDir;
@@ -46,17 +47,26 @@ describe('Challenger 2 Empirical Edge Case Tests', () => {
     let delegateHandler;
     let reviseHandler;
 
+    const capture = (name, handler) => {
+      if (name === 'delegate_task') delegateHandler = handler;
+      if (name === 'revise_task') reviseHandler = handler;
+    };
+
     const mockMcpServer = {
-      tool: (name, desc, shape, handler) => {
-        if (name === 'delegate_task') delegateHandler = handler;
-        if (name === 'revise_task') reviseHandler = handler;
-      },
+      tool: (name, desc, shape, handler) => capture(name, handler),
+      registerTool: (name, config, handler) => capture(name, handler),
     };
 
     registerDelegateTaskTool(mockMcpServer, server.components);
     registerReviseTaskTool(mockMcpServer, server.components);
 
-    return { server, delegateHandler, reviseHandler };
+    // These suites assert on task outcomes, so hand back handlers that resolve
+    // once the background lifecycle has settled.
+    return {
+      server,
+      delegateHandler: settleHandler(delegateHandler, server.components.taskRegistry),
+      reviseHandler: settleHandler(reviseHandler, server.components.taskRegistry),
+    };
   }
 
   describe('1. Prompt Payload Special Characters, Newlines, Unicode', () => {

@@ -5,6 +5,24 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 
+/**
+ * The server is registered with an absolute entrypoint rather than the bare
+ * `gelada` name, so the registration survives PATH changes (node version
+ * managers in particular). Assert the shape, not one specific spelling.
+ */
+function assertGeladaRegistration(entry) {
+  assert.ok(entry, 'gelada-mcp must be registered');
+  assert.ok(typeof entry.command === 'string' && entry.command.length > 0);
+  assert.deepEqual(entry.args.slice(-2), ['mcp', 'serve']);
+  if (entry.command !== 'gelada') {
+    assert.ok(
+      entry.args.some((a) => String(a).endsWith('gelada.js')),
+      `expected an absolute gelada entrypoint in args, got ${JSON.stringify(entry.args)}`,
+    );
+  }
+}
+
+
 const execFileAsync = promisify(execFile);
 const GELADA_BIN = path.resolve(process.cwd(), 'bin/gelada.js');
 
@@ -119,8 +137,7 @@ async function testSetupClientIntegrationAndUninstall() {
     const updatedClaudeConfig = JSON.parse(fs.readFileSync(claudeJsonPath, 'utf-8'));
     assert.ok(updatedClaudeConfig.mcpServers['existing-server'], 'Existing MCP server must be preserved');
     assert.ok(updatedClaudeConfig.mcpServers['gelada-mcp'], 'gelada-mcp server must be registered');
-    assert.equal(updatedClaudeConfig.mcpServers['gelada-mcp'].command, 'gelada');
-    assert.deepEqual(updatedClaudeConfig.mcpServers['gelada-mcp'].args, ['mcp', 'serve']);
+    assertGeladaRegistration(updatedClaudeConfig.mcpServers['gelada-mcp']);
 
     // 3. Run gelada setup --uninstall
     const { stdout: uninstallOut } = await execFileAsync(

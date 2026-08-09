@@ -103,17 +103,19 @@ describe('Challenger M4-4: Stdio Protocol E2E Stress & Channel Purity Verificati
   });
 
   describe('2. Tool Call Payload Variations & Response Structure Checks', () => {
-    it('should register exactly 5 tools with expected names', async () => {
+    it('should register the full tool set with expected names', async () => {
       const res = await client.listTools();
       assert.ok(res.tools && Array.isArray(res.tools));
-      assert.equal(res.tools.length, 5);
+      assert.equal(res.tools.length, 7);
 
       const names = res.tools.map((t) => t.name).sort();
       assert.deepEqual(names, [
+        'cancel_task',
         'delegate_task',
         'discard_task',
         'doctor',
         'inspect_task',
+        'list_workers',
         'revise_task',
       ]);
     });

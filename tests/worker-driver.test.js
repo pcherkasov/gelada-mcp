@@ -400,8 +400,16 @@ describe('AntigravityDriver & ProcessSupervisor Integration Test Suite', () => {
 
     it('should allow bypassing sanitization when sanitizeEnv is set to false', async () => {
       const driver = new AntigravityDriver();
-      const scriptPath = path.join(tempDir, 'env-dump.js');
-      await fs.writeFile(scriptPath, 'console.log(JSON.stringify(process.env));');
+      // The child writes its environment to a file rather than to stdout:
+      // worker stdout is deliberately scrubbed of known secret values, so
+      // reading secrets back through it would only ever see [REDACTED],
+      // regardless of whether env sanitization ran.
+      const envDumpPath = path.join(tempDir, 'env-bypass-dump.json');
+      const scriptPath = path.join(tempDir, 'env-dump-to-file.js');
+      await fs.writeFile(
+        scriptPath,
+        `require('node:fs').writeFileSync(${JSON.stringify(envDumpPath)}, JSON.stringify(process.env));`,
+      );
 
       const handle = await driver.spawnWorker({
         taskId: 'task-env-bypass',
@@ -413,10 +421,31 @@ describe('AntigravityDriver & ProcessSupervisor Integration Test Suite', () => {
 
       const result = await handle.promise;
       assert.equal(result.exitCode, 0);
-      const childEnv = JSON.parse(result.stdout);
+      const childEnv = JSON.parse(await fs.readFile(envDumpPath, 'utf-8'));
 
       assert.equal(childEnv.AWS_SECRET_ACCESS_KEY, 'mock-aws-secret-12345');
       assert.equal(childEnv.OPENAI_API_KEY, 'sk-mock-openai-key-67890');
+    });
+
+    it('still scrubs secrets from worker stdout even when sanitizeEnv is false', async () => {
+      const driver = new AntigravityDriver();
+      const scriptPath = path.join(tempDir, 'env-dump-stdout.js');
+      await fs.writeFile(scriptPath, 'console.log(JSON.stringify(process.env));');
+
+      const handle = await driver.spawnWorker({
+        taskId: 'task-env-bypass-stdout',
+        command: process.execPath,
+        args: [scriptPath],
+        cwd: tempDir,
+        sanitizeEnv: false,
+      });
+
+      const result = await handle.promise;
+      assert.equal(result.exitCode, 0);
+      assert.ok(
+        !result.stdout.includes('mock-aws-secret-12345'),
+        'secret values must never reach the leader agent through worker output',
+      );
     });
 
     it('should retain explicit task environment variables passed via options.env', async () => {

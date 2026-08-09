@@ -17,6 +17,7 @@ import { WorktreeManager } from '../dist/components/worktree-manager.js';
 import { AntigravityDriver } from '../dist/components/worker-driver.js';
 import { ProcessSupervisor } from '../dist/components/process-supervisor.js';
 import { VerificationEngine } from '../dist/components/verification-engine.js';
+import { ModelRouter } from '../dist/components/model-router.js';
 import { registerDelegateTaskTool } from '../dist/tools/delegate-task.js';
 import { registerInspectTaskTool } from '../dist/tools/inspect-task.js';
 import { registerReviseTaskTool } from '../dist/tools/revise-task.js';
@@ -84,6 +85,7 @@ describe('Milestone 12 - Challenger 1 Empirical Stress Test Suite (R3 Granular T
       workerDriver,
       processSupervisor,
       verificationEngine,
+      modelRouter: new ModelRouter(),
     };
 
     registeredTools = new Map();

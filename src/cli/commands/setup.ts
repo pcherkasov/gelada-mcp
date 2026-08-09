@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
 import { getConfigDir, getConfigPath, getDataDir, getLogDir } from '../utils/paths.js';
 
@@ -85,6 +86,38 @@ export interface SetupResult {
   detectedClients?: ClientDetectionResult[];
   clientUpdates?: ClientConfigUpdateResult[];
   error?: string;
+}
+
+/**
+ * Resolves the command an MCP client should use to launch this server.
+ *
+ * The entrypoint is derived from this module's own location rather than from
+ * process.argv[1]: setup can be invoked programmatically (tests, or an embedding
+ * process), where argv[1] is some other script entirely and registering it would
+ * point the client at the wrong program.
+ *
+ * An absolute node + script path is used rather than the bare `gelada` name so
+ * the registration keeps working when PATH changes — notably under node version
+ * managers, where the shim directory is version specific.
+ */
+export function resolveServerLaunchCommand(): { command: string; args: string[] } {
+  // Compiled single-file binary: it is its own entrypoint.
+  if ((process as unknown as { pkg?: unknown }).pkg && process.execPath) {
+    return { command: process.execPath, args: ['mcp', 'serve'] };
+  }
+
+  try {
+    const here = fileURLToPath(import.meta.url);
+    // dist/cli/commands/setup.js -> package root
+    const binPath = path.resolve(here, '../../../../bin/gelada.js');
+    if (fs.existsSync(binPath)) {
+      return { command: process.execPath, args: [binPath, 'mcp', 'serve'] };
+    }
+  } catch {
+    // Fall through to the PATH-based form below.
+  }
+
+  return { command: 'gelada', args: ['mcp', 'serve'] };
 }
 
 export function detectMcpClients(customHome?: string): ClientDetectionResult[] {
@@ -299,24 +332,11 @@ export function updateClientConfigs(options: SetupOptions = {}): {
           configObj.mcpServers = {};
         }
 
-        const isCompiled = Boolean((process as any).pkg);
-        const scriptPath = process.argv[1] || '';
-        
-        let command = 'gelada';
-        let args = ['mcp', 'serve'];
-        
-        if (isCompiled && process.execPath) {
-           // Running as a compiled binary (e.g. installed via install.sh)
-           command = process.execPath;
-        } else if (scriptPath && fs.existsSync(scriptPath)) {
-           // Running via node (e.g. local development or npm global install)
-           command = process.execPath;
-           args = [path.resolve(scriptPath), 'mcp', 'serve'];
-        }
+        const { command, args } = resolveServerLaunchCommand();
 
         configObj.mcpServers['gelada-mcp'] = {
-          command: command,
-          args: args,
+          command,
+          args,
         };
 
         fs.writeFileSync(filePath, JSON.stringify(configObj, null, 2), 'utf-8');

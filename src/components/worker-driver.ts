@@ -1,6 +1,7 @@
 import { spawn, ChildProcess } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
 import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { ProcessSupervisor } from './process-supervisor.js';
 import { GeladaError } from '../errors.js';
 import { SecretRedactor } from '../utils/secret-redactor.js';
@@ -262,6 +263,39 @@ export function sanitizeEnvironment(
   return result;
 }
 
+/**
+ * Looks up a bare command name on PATH, mirroring what spawn would do, so a
+ * missing worker CLI can be reported before a process is ever created.
+ * Returns the resolved absolute path, or undefined when nothing matches.
+ */
+export function resolveOnPath(command: string): string | undefined {
+  const rawPath = process.env.PATH;
+  if (!rawPath) return undefined;
+
+  const extensions =
+    process.platform === 'win32'
+      ? (process.env.PATHEXT || '.EXE;.CMD;.BAT;.COM').split(';').filter(Boolean)
+      : [''];
+
+  for (const dir of rawPath.split(path.delimiter)) {
+    if (!dir) continue;
+    for (const ext of extensions) {
+      const candidate = path.join(dir, command + ext);
+      try {
+        const stat = fs.statSync(candidate);
+        if (!stat.isFile()) continue;
+        if (process.platform === 'win32') return candidate;
+        fs.accessSync(candidate, fs.constants.X_OK);
+        return candidate;
+      } catch {
+        // Try the next candidate.
+      }
+    }
+  }
+
+  return undefined;
+}
+
 export class AntigravityDriver {
   private supervisor: ProcessSupervisor;
   private activeWorkers: Map<string, WorkerHandle> = new Map();
@@ -322,6 +356,15 @@ export class AntigravityDriver {
       if (!fs.existsSync(binary)) {
         throw new DriverError(`Command executable non-existent: ${binary}`, 'WORKER_NOT_FOUND');
       }
+    } else if (options.sandbox !== 'docker' && !resolveOnPath(binary)) {
+      // Resolve bare command names up front. Otherwise spawn fails
+      // asynchronously with ENOENT and "the worker CLI is not installed" only
+      // surfaces to the leader agent through polling, long after the call that
+      // could have reported it plainly.
+      throw new DriverError(
+        `Command executable non-existent: ${binary}`,
+        'WORKER_NOT_FOUND',
+      );
     }
 
     const sanitizationOptions: EnvSanitizationOptions = {

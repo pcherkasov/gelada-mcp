@@ -1,11 +1,55 @@
-import { execFile } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { promisify } from 'node:util';
 
 import { getDataDir } from '../cli/utils/paths.js';
 
-const execFileAsync = promisify(execFile);
+/**
+ * Runs a command and captures its output with stdin closed.
+ *
+ * stdin matters: the Antigravity CLI exits immediately with no output when it
+ * is handed an open stdin pipe it can never read from, which is what
+ * child_process.execFile provides. Every invocation of the worker CLI has to
+ * close stdin, not just the ones that spawn a task.
+ */
+function runCapturing(
+  binary: string,
+  args: string[],
+  timeoutMs: number,
+): Promise<{ stdout: string; stderr: string; code: number | null }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(binary, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      child.kill('SIGKILL');
+      reject(new Error(`"${binary} ${args.join(' ')}" timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    child.stdout.on('data', (d) => {
+      stdout += d.toString();
+    });
+    child.stderr.on('data', (d) => {
+      stderr += d.toString();
+    });
+    child.on('error', (err) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(err);
+    });
+    child.on('close', (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ stdout, stderr, code });
+    });
+  });
+}
 
 /** A concrete model the worker CLI is willing to accept. */
 export interface WorkerModel {
@@ -152,7 +196,16 @@ export interface LoadCatalogOptions {
   timeoutMs?: number;
 }
 
-let memoryCatalog: WorkerModelCatalog | undefined;
+/**
+ * Keyed by worker command: pointing AGY_COMMAND at a different binary must not
+ * be served the previous binary's model list.
+ */
+const memoryCatalogs = new Map<string, WorkerModelCatalog>();
+
+/** Drops the in-process catalog cache. Intended for tests. */
+export function resetWorkerModelCatalogCache(): void {
+  memoryCatalogs.clear();
+}
 
 /**
  * Resolves the list of models the worker CLI accepts, preferring live data,
@@ -162,35 +215,42 @@ export async function loadWorkerModelCatalog(
   options: LoadCatalogOptions = {},
 ): Promise<WorkerModelCatalog> {
   const now = Date.now();
+  const rawCommand = (options.command || process.env.AGY_COMMAND || 'agy').trim();
 
-  if (!options.refresh && memoryCatalog && now - memoryCatalog.fetchedAt < CACHE_TTL_MS) {
-    return memoryCatalog;
+  const cachedInMemory = memoryCatalogs.get(rawCommand);
+  if (!options.refresh && cachedInMemory && now - cachedInMemory.fetchedAt < CACHE_TTL_MS) {
+    return cachedInMemory;
   }
 
   if (!options.refresh) {
     const cached = readCache();
     if (cached && now - cached.fetchedAt < CACHE_TTL_MS) {
-      memoryCatalog = { models: cached.models, source: 'cache', fetchedAt: cached.fetchedAt };
-      return memoryCatalog;
+      const catalog: WorkerModelCatalog = {
+        models: cached.models,
+        source: 'cache',
+        fetchedAt: cached.fetchedAt,
+      };
+      memoryCatalogs.set(rawCommand, catalog);
+      return catalog;
     }
   }
 
-  const rawCommand = (options.command || process.env.AGY_COMMAND || 'agy').trim();
   const tokens = rawCommand.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [rawCommand];
   const binary = tokens[0].replace(/^["']|["']$/g, '');
   const prefixArgs = tokens.slice(1).map((t) => t.replace(/^["']|["']$/g, ''));
 
   try {
-    const { stdout, stderr } = await execFileAsync(binary, [...prefixArgs, 'models'], {
-      timeout: options.timeoutMs ?? 20000,
-      maxBuffer: 1024 * 1024,
-      encoding: 'utf-8',
-    });
+    const { stdout, stderr } = await runCapturing(
+      binary,
+      [...prefixArgs, 'models'],
+      options.timeoutMs ?? 20000,
+    );
     const models = parseWorkerModelList(`${stdout}\n${stderr}`);
     if (models.length > 0) {
       writeCache(models, now);
-      memoryCatalog = { models, source: 'cli', fetchedAt: now };
-      return memoryCatalog;
+      const catalog: WorkerModelCatalog = { models, source: 'cli', fetchedAt: now };
+      memoryCatalogs.set(rawCommand, catalog);
+      return catalog;
     }
   } catch (err) {
     const stale = readCache();

@@ -17,12 +17,14 @@ import { WorktreeManager } from '../dist/components/worktree-manager.js';
 import { AntigravityDriver } from '../dist/components/worker-driver.js';
 import { ProcessSupervisor } from '../dist/components/process-supervisor.js';
 import { VerificationEngine } from '../dist/components/verification-engine.js';
+import { ModelRouter } from '../dist/components/model-router.js';
 import { registerDelegateTaskTool } from '../dist/tools/delegate-task.js';
 import { registerInspectTaskTool } from '../dist/tools/inspect-task.js';
 import { registerReviseTaskTool } from '../dist/tools/revise-task.js';
 import { registerDiscardTaskTool } from '../dist/tools/discard-task.js';
 
 import { execSync } from 'node:child_process';
+import { settleHandler } from './helpers/agy-mock.js';
 
 describe('M12 Challenger 2: Pre-registration Failures & Terminal States Stress Suite', () => {
   let tempRepoRoot;
@@ -73,13 +75,21 @@ describe('M12 Challenger 2: Pre-registration Failures & Terminal States Stress S
       workerDriver,
       processSupervisor,
       verificationEngine,
+      modelRouter: new ModelRouter(),
     };
 
     registeredTools = new Map();
+    const capture = (name, description, schema, handler) => {
+      // delegate_task returns once the worker is spawned; these tests assert on
+      // the terminal state, so wrap it to resolve after the task settles.
+      const settled =
+        name === 'delegate_task' ? settleHandler(handler, taskRegistry) : handler;
+      registeredTools.set(name, { name, description, schema, handler: settled });
+    };
     mockMcpServer = {
-      tool: (name, description, schema, handler) => {
-        registeredTools.set(name, { name, description, schema, handler });
-      },
+      tool: (name, description, schema, handler) => capture(name, description, schema, handler),
+      registerTool: (name, config, handler) =>
+        capture(name, config?.description, config?.inputSchema, handler),
     };
 
     registerDelegateTaskTool(mockMcpServer, components);
@@ -307,7 +317,10 @@ describe('M12 Challenger 2: Pre-registration Failures & Terminal States Stress S
   describe('4. Post-execution Verification Failures & FAILED_VERIFICATION', () => {
     it('records FAILED_VERIFICATION state when worker succeeds but verification command fails', async () => {
       // Mock worker execution success
+      // The mock has to leave a change behind: a worker that exits 0 without
+      // touching anything is now reported as FAILED_WORKER, not success.
       workerDriver.spawnWorker = async (options) => {
+        await fs.writeFile(path.join(options.cwd, 'generated.txt'), 'mock worker output\n');
         return {
           workerId: 'mock-worker-2',
           process: {},
@@ -413,7 +426,10 @@ describe('M12 Challenger 2: Pre-registration Failures & Terminal States Stress S
         warnings: ['Uncommitted changes in worktree'],
       });
 
+      // The mock has to leave a change behind: a worker that exits 0 without
+      // touching anything is now reported as FAILED_WORKER, not success.
       workerDriver.spawnWorker = async (options) => {
+        await fs.writeFile(path.join(options.cwd, 'generated.txt'), 'mock worker output\n');
         return {
           workerId: 'mock-worker-warnings',
           process: {},

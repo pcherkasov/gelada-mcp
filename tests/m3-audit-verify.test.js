@@ -74,13 +74,21 @@ async function testJsonRpcTools() {
           const listRes = responses.get(2);
           assert.ok(listRes.result, 'Result should exist for tools/list');
           const tools = listRes.result.tools;
-          assert.equal(tools.length, 5, `Expected 5 registered tools, got ${tools.length}`);
+          assert.equal(tools.length, 7, `Expected 7 registered tools, got ${tools.length}`);
 
           const toolNames = tools.map((t) => t.name).sort();
           assert.deepEqual(
             toolNames,
-            ['delegate_task', 'discard_task', 'doctor', 'inspect_task', 'revise_task'],
-            'All 5 tools must be registered',
+            [
+              'cancel_task',
+              'delegate_task',
+              'discard_task',
+              'doctor',
+              'inspect_task',
+              'list_workers',
+              'revise_task',
+            ],
+            'All tools must be registered',
           );
 
           // Response 3: tools/call delegate_task

@@ -9,6 +9,7 @@ import { createGeladaServer } from '../dist/server.js';
 import { registerDelegateTaskTool, isAuthError } from '../dist/tools/delegate-task.js';
 import { registerReviseTaskTool } from '../dist/tools/revise-task.js';
 import { PolicyEngine } from '../dist/components/policy-engine.js';
+import { settleHandler, parseAgyArgs } from './helpers/agy-mock.js';
 
 describe('Empirical Stress Testing: agy CLI Integration & Error Handling', () => {
   let tempRepoDir;
@@ -58,17 +59,26 @@ describe('Empirical Stress Testing: agy CLI Integration & Error Handling', () =>
     let delegateHandler;
     let reviseHandler;
 
+    const capture = (name, handler) => {
+      if (name === 'delegate_task') delegateHandler = handler;
+      if (name === 'revise_task') reviseHandler = handler;
+    };
+
     const mockMcpServer = {
-      tool: (name, desc, shape, handler) => {
-        if (name === 'delegate_task') delegateHandler = handler;
-        if (name === 'revise_task') reviseHandler = handler;
-      },
+      tool: (name, desc, shape, handler) => capture(name, handler),
+      registerTool: (name, config, handler) => capture(name, handler),
     };
 
     registerDelegateTaskTool(mockMcpServer, server.components);
     registerReviseTaskTool(mockMcpServer, server.components);
 
-    return { server, delegateHandler, reviseHandler };
+    // These suites assert on task outcomes, so hand back handlers that resolve
+    // once the background lifecycle has settled.
+    return {
+      server,
+      delegateHandler: settleHandler(delegateHandler, server.components.taskRegistry),
+      reviseHandler: settleHandler(reviseHandler, server.components.taskRegistry),
+    };
   }
 
   async function createExecutableMockScript(filePath, jsCode) {
@@ -146,7 +156,16 @@ describe('Empirical Stress Testing: agy CLI Integration & Error Handling', () =>
 
     it('1.5 Missing binary ENOENT path in revise_task', async () => {
       const mockScriptSuccess = path.join(tempRepoDir, 'mock_agy_ok.js');
-      await createExecutableMockScript(mockScriptSuccess, `console.log("OK"); process.exit(0);`);
+      await createExecutableMockScript(mockScriptSuccess, `import fs from 'node:fs';
+         import path from 'node:path';
+         const argv = process.argv.slice(2);
+         const i = argv.indexOf('--add-dir');
+         if (i >= 0) {
+           fs.writeFileSync(path.join(argv[i + 1], 'worker-output.txt'), 'done\\n');
+         }
+         console.log("OK");
+         process.exit(0);
+        `);
       process.env.AGY_COMMAND = mockScriptSuccess;
 
       const { delegateHandler, reviseHandler } = setupToolHandlers();
@@ -304,7 +323,13 @@ describe('Empirical Stress Testing: agy CLI Integration & Error Handling', () =>
       await createExecutableMockScript(
         mockScript,
         `import fs from 'node:fs';
-         fs.writeFileSync('${logFile}', JSON.stringify(process.argv.slice(2)));
+         import path from 'node:path';
+         const argv = process.argv.slice(2);
+         fs.writeFileSync('${logFile}', JSON.stringify(argv));
+         const i = argv.indexOf('--add-dir');
+         if (i >= 0) {
+           fs.writeFileSync(path.join(argv[i + 1], 'worker-output.txt'), 'done\\n');
+         }
          process.exit(0);
         `,
       );
@@ -323,9 +348,7 @@ describe('Empirical Stress Testing: agy CLI Integration & Error Handling', () =>
       assert.equal(resData.status, 'completed');
 
       const loggedArgs = JSON.parse(await fs.readFile(logFile, 'utf-8'));
-      assert.equal(loggedArgs[0], 'prompt');
-      assert.equal(loggedArgs[1], '--model');
-      assert.equal(loggedArgs[2], 'explicit-request-profile');
+      assert.equal(parseAgyArgs(loggedArgs).model, 'explicit-request-profile');
     });
 
     it('3.2 Omitted modelProfile falls back to Project Policy defaultModelProfile', async () => {
@@ -347,7 +370,13 @@ describe('Empirical Stress Testing: agy CLI Integration & Error Handling', () =>
       await createExecutableMockScript(
         mockScript,
         `import fs from 'node:fs';
-         fs.writeFileSync('${logFile}', JSON.stringify(process.argv.slice(2)));
+         import path from 'node:path';
+         const argv = process.argv.slice(2);
+         fs.writeFileSync('${logFile}', JSON.stringify(argv));
+         const i = argv.indexOf('--add-dir');
+         if (i >= 0) {
+           fs.writeFileSync(path.join(argv[i + 1], 'worker-output.txt'), 'done\\n');
+         }
          process.exit(0);
         `,
       );
@@ -365,8 +394,7 @@ describe('Empirical Stress Testing: agy CLI Integration & Error Handling', () =>
       assert.equal(resData.status, 'completed');
 
       const loggedArgs = JSON.parse(await fs.readFile(logFile, 'utf-8'));
-      assert.equal(loggedArgs[1], '--model');
-      assert.equal(loggedArgs[2], 'project-profile');
+      assert.equal(parseAgyArgs(loggedArgs).model, 'project-profile');
     });
 
     it('3.3 Omitted modelProfile & no project policy falls back to Global Config defaultModelProfile', async () => {
@@ -381,7 +409,13 @@ describe('Empirical Stress Testing: agy CLI Integration & Error Handling', () =>
       await createExecutableMockScript(
         mockScript,
         `import fs from 'node:fs';
-         fs.writeFileSync('${logFile}', JSON.stringify(process.argv.slice(2)));
+         import path from 'node:path';
+         const argv = process.argv.slice(2);
+         fs.writeFileSync('${logFile}', JSON.stringify(argv));
+         const i = argv.indexOf('--add-dir');
+         if (i >= 0) {
+           fs.writeFileSync(path.join(argv[i + 1], 'worker-output.txt'), 'done\\n');
+         }
          process.exit(0);
         `,
       );
@@ -399,8 +433,7 @@ describe('Empirical Stress Testing: agy CLI Integration & Error Handling', () =>
       assert.equal(resData.status, 'completed');
 
       const loggedArgs = JSON.parse(await fs.readFile(logFile, 'utf-8'));
-      assert.equal(loggedArgs[1], '--model');
-      assert.equal(loggedArgs[2], 'global-profile');
+      assert.equal(parseAgyArgs(loggedArgs).model, 'global-profile');
     });
 
     it('3.4 Omitted modelProfile with no project or global policy falls back to Hard Limits "default"', async () => {
@@ -409,7 +442,13 @@ describe('Empirical Stress Testing: agy CLI Integration & Error Handling', () =>
       await createExecutableMockScript(
         mockScript,
         `import fs from 'node:fs';
-         fs.writeFileSync('${logFile}', JSON.stringify(process.argv.slice(2)));
+         import path from 'node:path';
+         const argv = process.argv.slice(2);
+         fs.writeFileSync('${logFile}', JSON.stringify(argv));
+         const i = argv.indexOf('--add-dir');
+         if (i >= 0) {
+           fs.writeFileSync(path.join(argv[i + 1], 'worker-output.txt'), 'done\\n');
+         }
          process.exit(0);
         `,
       );
@@ -427,8 +466,11 @@ describe('Empirical Stress Testing: agy CLI Integration & Error Handling', () =>
       assert.equal(resData.status, 'completed');
 
       const loggedArgs = JSON.parse(await fs.readFile(logFile, 'utf-8'));
-      assert.equal(loggedArgs[1], '--model');
-      assert.equal(loggedArgs[2], 'default');
+      // With no project or global override the DEFAULT profile is used, and a
+      // profile resolves to a concrete model id rather than being passed
+      // through as the profile name.
+      const resolved = parseAgyArgs(loggedArgs).model;
+      assert.ok(resolved && resolved !== 'default', `expected a concrete model id, got ${resolved}`);
     });
 
     it('3.5 PolicyEngine direct precedence verification (Request Config > Project > Global > Hard Limits)', () => {
@@ -448,7 +490,16 @@ describe('Empirical Stress Testing: agy CLI Integration & Error Handling', () =>
       const mockScript = path.join(tempRepoDir, 'mock_agy_log.js');
       await createExecutableMockScript(
         mockScript,
-        `console.log("OK"); process.exit(0);`,
+        `import fs from 'node:fs';
+         import path from 'node:path';
+         const argv = process.argv.slice(2);
+         const i = argv.indexOf('--add-dir');
+         if (i >= 0) {
+           fs.writeFileSync(path.join(argv[i + 1], 'worker-output.txt'), 'done\\n');
+         }
+         console.log("OK");
+         process.exit(0);
+        `,
       );
       process.env.AGY_COMMAND = mockScript;
 
@@ -481,7 +532,13 @@ describe('Empirical Stress Testing: agy CLI Integration & Error Handling', () =>
       await createExecutableMockScript(
         mockScript,
         `import fs from 'node:fs';
-         fs.writeFileSync('${logFile}', JSON.stringify(process.argv.slice(2)));
+         import path from 'node:path';
+         const argv = process.argv.slice(2);
+         fs.writeFileSync('${logFile}', JSON.stringify(argv));
+         const i = argv.indexOf('--add-dir');
+         if (i >= 0) {
+           fs.writeFileSync(path.join(argv[i + 1], 'worker-output.txt'), 'done\\n');
+         }
          process.exit(0);
         `,
       );
@@ -508,13 +565,21 @@ describe('Empirical Stress Testing: agy CLI Integration & Error Handling', () =>
       assert.equal(revData.status, 'completed');
 
       const loggedArgs = JSON.parse(await fs.readFile(logFile, 'utf-8'));
-      assert.equal(loggedArgs[1], '--model');
-      assert.equal(loggedArgs[2], 'revise-project-profile');
+      assert.equal(parseAgyArgs(loggedArgs).model, 'revise-project-profile');
     });
 
     it('3.8 AGY_COMMAND with arguments capability check', async () => {
       const mockScript = path.join(tempRepoDir, 'mock_space.js');
-      await createExecutableMockScript(mockScript, `console.log("OK"); process.exit(0);`);
+      await createExecutableMockScript(mockScript, `import fs from 'node:fs';
+         import path from 'node:path';
+         const argv = process.argv.slice(2);
+         const i = argv.indexOf('--add-dir');
+         if (i >= 0) {
+           fs.writeFileSync(path.join(argv[i + 1], 'worker-output.txt'), 'done\\n');
+         }
+         console.log("OK");
+         process.exit(0);
+        `);
       process.env.AGY_COMMAND = mockScript;
 
       const { delegateHandler } = setupToolHandlers();

@@ -35,16 +35,24 @@ describe('Milestone 4: E2E Integration & Verification over MCP Stdio Transport',
     }
   });
 
-  it('should list all 5 registered MCP tools', async () => {
+  it('should list every registered MCP tool', async () => {
     const response = await client.listTools();
     assert.ok(response.tools, 'Response should contain tools array');
-    assert.equal(response.tools.length, 5, `Expected 5 tools, got ${response.tools.length}`);
+    assert.equal(response.tools.length, 7, `Expected 7 tools, got ${response.tools.length}`);
 
     const toolNames = response.tools.map((t) => t.name).sort();
     assert.deepEqual(
       toolNames,
-      ['delegate_task', 'discard_task', 'doctor', 'inspect_task', 'revise_task'],
-      'All 5 expected tools must be registered',
+      [
+        'cancel_task',
+        'delegate_task',
+        'discard_task',
+        'doctor',
+        'inspect_task',
+        'list_workers',
+        'revise_task',
+      ],
+      'All expected tools must be registered',
     );
   });
 

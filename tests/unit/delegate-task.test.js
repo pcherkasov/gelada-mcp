@@ -8,15 +8,32 @@ import { execSync } from 'node:child_process';
 import { createGeladaServer } from '../../dist/server.js';
 import { registerDelegateTaskTool, isAuthError } from '../../dist/tools/delegate-task.js';
 import { registerReviseTaskTool } from '../../dist/tools/revise-task.js';
+import { resetWorkerModelCatalogCache } from '../../dist/components/model-catalog.js';
+import {
+  createMockAgy,
+  readAgyArgs,
+  waitForTerminalState,
+  delegateAndWait,
+} from '../helpers/agy-mock.js';
 
 describe('Antigravity CLI (agy) Integration Unit Tests', () => {
   let tempRepoDir;
+  let tempDataDir;
   let oldEnvAgy;
+  let oldDataDir;
 
   beforeEach(async () => {
     oldEnvAgy = process.env.AGY_COMMAND;
+    oldDataDir = process.env.GELADA_DATA_DIR;
+
     tempRepoDir = await fs.mkdtemp(path.join(os.tmpdir(), 'gelada-agy-test-repo-'));
-    // Initialize dummy git repository
+
+    // Isolate the model-catalog cache so a real catalog on this machine cannot
+    // leak into tests that point AGY_COMMAND at a mock.
+    tempDataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'gelada-agy-test-data-'));
+    process.env.GELADA_DATA_DIR = tempDataDir;
+    resetWorkerModelCatalogCache();
+
     execSync('git init', { cwd: tempRepoDir });
     execSync('git config user.name "Test User"', { cwd: tempRepoDir });
     execSync('git config user.email "test@example.com"', { cwd: tempRepoDir });
@@ -25,32 +42,41 @@ describe('Antigravity CLI (agy) Integration Unit Tests', () => {
   });
 
   afterEach(async () => {
-    if (oldEnvAgy !== undefined) {
-      process.env.AGY_COMMAND = oldEnvAgy;
-    } else {
-      delete process.env.AGY_COMMAND;
-    }
-    if (tempRepoDir) {
-      await fs.rm(tempRepoDir, { recursive: true, force: true }).catch(() => {});
+    if (oldEnvAgy !== undefined) process.env.AGY_COMMAND = oldEnvAgy;
+    else delete process.env.AGY_COMMAND;
+
+    if (oldDataDir !== undefined) process.env.GELADA_DATA_DIR = oldDataDir;
+    else delete process.env.GELADA_DATA_DIR;
+
+    resetWorkerModelCatalogCache();
+
+    for (const dir of [tempRepoDir, tempDataDir]) {
+      if (dir) await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
     }
   });
 
   function setupToolHandlers() {
     const server = createGeladaServer();
-    let delegateHandler;
-    let reviseHandler;
+    const handlers = {};
 
+    // Accepts both the legacy `tool()` registration and `registerTool()`.
     const mockMcpServer = {
-      tool: (name, desc, shape, handler) => {
-        if (name === 'delegate_task') delegateHandler = handler;
-        if (name === 'revise_task') reviseHandler = handler;
+      tool: (name, _desc, _shape, handler) => {
+        handlers[name] = handler;
+      },
+      registerTool: (name, _config, handler) => {
+        handlers[name] = handler;
       },
     };
 
     registerDelegateTaskTool(mockMcpServer, server.components);
     registerReviseTaskTool(mockMcpServer, server.components);
 
-    return { server, delegateHandler, reviseHandler };
+    return {
+      server,
+      delegateHandler: handlers.delegate_task,
+      reviseHandler: handlers.revise_task,
+    };
   }
 
   describe('1. helper isAuthError', () => {
@@ -81,115 +107,96 @@ describe('Antigravity CLI (agy) Integration Unit Tests', () => {
     });
   });
 
-  describe('2. delegate_task spawning agy with model profile flag', () => {
-    it('should spawn agy CLI with correct prompt and explicitly passed --model profile flag', async () => {
+  describe('2. delegate_task worker invocation', () => {
+    it('passes the resolved model, the worktree and the prompt to the worker', async () => {
       const logFile = path.join(tempRepoDir, 'agy_args.json');
-      const mockScript = path.join(tempRepoDir, 'mock_agy.js');
-      await fs.writeFile(
-        mockScript,
-        `import fs from 'node:fs';
-         const args = process.argv.slice(2);
-         fs.writeFileSync('${logFile}', JSON.stringify(args));
-         console.log('Mock agy executed');
-         process.exit(0);
-        `,
-      );
-
-      process.env.AGY_COMMAND = `${process.execPath} ${mockScript}`;
+      const { command } = await createMockAgy(tempRepoDir, { logFile });
+      process.env.AGY_COMMAND = command;
 
       const { server, delegateHandler } = setupToolHandlers();
 
-      const res = await delegateHandler({
-        repoPath: tempRepoDir,
-        taskType: 'unit-test',
-        objective: 'Write tests for feature A',
-        modelProfile: 'fast-profile',
-      });
+      const { payload } = await delegateAndWait(
+        delegateHandler,
+        server.components.taskRegistry,
+        {
+          repoPath: tempRepoDir,
+          taskType: 'unit-test',
+          objective: 'Write tests for feature A',
+          modelProfile: 'mock-pro-high',
+        },
+      );
 
-      const resData = JSON.parse(res.content[0].text);
-      assert.equal(resData.status, 'running');
+      assert.equal(payload.status, 'running');
 
-      await new Promise(r => setTimeout(r, 50));
-      await new Promise((r) => setTimeout(r, 50));
-      const loggedArgs = JSON.parse(await fs.readFile(logFile, 'utf-8'));
-      assert.equal(loggedArgs[0], '--model');
-      assert.equal(loggedArgs[1], 'fast-profile');
-      assert.equal(loggedArgs[2], '--prompt');
-      assert.ok(loggedArgs[3].includes('Objective: Write tests for feature A'));
+      const args = await readAgyArgs(logFile);
+      assert.equal(args.model, 'mock-pro-high');
+      assert.ok(args.prompt.includes('Write tests for feature A'));
+
+      // --add-dir is what makes the worker operate on our worktree at all.
+      assert.ok(args.addDir, '--add-dir must be passed');
+      assert.ok(
+        args.addDir.includes('.worktrees'),
+        `--add-dir should point at the task worktree, got ${args.addDir}`,
+      );
     });
 
-    it('should fallback to Policy Engine defaultModelProfile when modelProfile argument is omitted', async () => {
-      // Create .gelada/policy.yaml in target repo setting defaultModelProfile
-      const geladaDir = path.join(tempRepoDir, '.gelada');
-      await fs.mkdir(geladaDir, { recursive: true });
-      await fs.writeFile(
-        path.join(geladaDir, 'policy.yaml'),
-        'defaultModelProfile: custom-policy-model\n',
-      );
-
-      const logFile = path.join(tempRepoDir, 'agy_args.json');
-      const mockScript = path.join(tempRepoDir, 'mock_agy.js');
-      await fs.writeFile(
-        mockScript,
-        `import fs from 'node:fs';
-         const args = process.argv.slice(2);
-         fs.writeFileSync('${logFile}', JSON.stringify(args));
-         console.log('Mock agy executed');
-         process.exit(0);
-        `,
-      );
-
-      process.env.AGY_COMMAND = `${process.execPath} ${mockScript}`;
+    it('resolves an abstract profile to a model the worker catalog offers', async () => {
+      const logFile = path.join(tempRepoDir, 'agy_args_profile.json');
+      const { command } = await createMockAgy(tempRepoDir, { logFile });
+      process.env.AGY_COMMAND = command;
 
       const { server, delegateHandler } = setupToolHandlers();
 
-      const res = await delegateHandler({
+      await delegateAndWait(delegateHandler, server.components.taskRegistry, {
+        repoPath: tempRepoDir,
+        taskType: 'doc-gen',
+        objective: 'Generate documentation',
+        modelProfile: 'FAST',
+      });
+
+      const args = await readAgyArgs(logFile);
+      assert.equal(args.model, 'mock-flash-medium');
+    });
+
+    it('falls back to the project policy defaultModelProfile when none is given', async () => {
+      const geladaDir = path.join(tempRepoDir, '.gelada');
+      await fs.mkdir(geladaDir, { recursive: true });
+      await fs.writeFile(path.join(geladaDir, 'policy.yaml'), 'defaultModelProfile: DEEP\n');
+
+      const logFile = path.join(tempRepoDir, 'agy_args_policy.json');
+      const { command } = await createMockAgy(tempRepoDir, { logFile });
+      process.env.AGY_COMMAND = command;
+
+      const { server, delegateHandler } = setupToolHandlers();
+
+      await delegateAndWait(delegateHandler, server.components.taskRegistry, {
         repoPath: tempRepoDir,
         taskType: 'unit-test',
         objective: 'Refactor module B',
       });
 
-      const resData = JSON.parse(res.content[0].text);
-      assert.equal(resData.status, 'running');
-
-      await new Promise(r => setTimeout(r, 50));
-      await new Promise((r) => setTimeout(r, 50));
-      const loggedArgs = JSON.parse(await fs.readFile(logFile, 'utf-8'));
-      assert.equal(loggedArgs[0], '--model');
-      assert.equal(loggedArgs[1], 'custom-policy-model');
-      assert.equal(loggedArgs[2], '--prompt');
+      const args = await readAgyArgs(logFile);
+      assert.equal(args.model, 'mock-pro-high');
     });
 
-    it('should fallback to default model profile ("default") when no repo policy or arg is provided', async () => {
-      const logFile = path.join(tempRepoDir, 'agy_args_default.json');
-      const mockScript = path.join(tempRepoDir, 'mock_agy.js');
-      await fs.writeFile(
-        mockScript,
-        `import fs from 'node:fs';
-         const args = process.argv.slice(2);
-         fs.writeFileSync('${logFile}', JSON.stringify(args));
-         console.log('Mock agy executed');
-         process.exit(0);
-        `,
-      );
+    it('rejects a model the worker catalog does not know, before spawning', async () => {
+      const logFile = path.join(tempRepoDir, 'agy_args_unknown.json');
+      const { command } = await createMockAgy(tempRepoDir, { logFile });
+      process.env.AGY_COMMAND = command;
 
-      process.env.AGY_COMMAND = `${process.execPath} ${mockScript}`;
-
-      const { server, delegateHandler } = setupToolHandlers();
+      const { delegateHandler } = setupToolHandlers();
 
       const res = await delegateHandler({
         repoPath: tempRepoDir,
-        taskType: 'doc-gen',
-        objective: 'Generate documentation',
+        taskType: 'unit-test',
+        objective: 'Use a model that does not exist',
+        modelProfile: 'gemini-2.5-pro',
       });
 
-      const resData = JSON.parse(res.content[0].text);
-      assert.equal(resData.status, 'running');
-
-      await new Promise((r) => setTimeout(r, 50));
-      const loggedArgs = JSON.parse(await fs.readFile(logFile, 'utf-8'));
-      assert.equal(loggedArgs[0], '--model');
-      assert.equal(loggedArgs[1], 'inherit');
+      const data = JSON.parse(res.content[0].text);
+      assert.equal(data.status, 'failed');
+      assert.equal(data.code, 'UNKNOWN_MODEL');
+      await assert.rejects(() => fs.readFile(logFile, 'utf-8'), 'worker must not be spawned');
     });
   });
 
@@ -197,7 +204,7 @@ describe('Antigravity CLI (agy) Integration Unit Tests', () => {
     it('should return clear user-friendly error when agy binary is missing or not in PATH', async () => {
       process.env.AGY_COMMAND = '/nonexistent/path/to/missing-agy-executable';
 
-      const { server, delegateHandler } = setupToolHandlers();
+      const { delegateHandler } = setupToolHandlers();
 
       const res = await delegateHandler({
         repoPath: tempRepoDir,
@@ -215,65 +222,95 @@ describe('Antigravity CLI (agy) Integration Unit Tests', () => {
 
   describe('4. Authentication Failure Error Handling', () => {
     it('should return structured error instructing user to run agy login when auth failure occurs', async () => {
-      const mockScript = path.join(tempRepoDir, 'mock_auth_fail.js');
-      await fs.writeFile(
-        mockScript,
-        `console.error("Error: Authentication required. User is unauthenticated.");
-         process.exit(1);
-        `,
-      );
-
-      process.env.AGY_COMMAND = `${process.execPath} ${mockScript}`;
+      const { command } = await createMockAgy(tempRepoDir, {
+        name: 'mock_auth_fail.mjs',
+        exitCode: 1,
+        stdout: '',
+        stderr: 'Error: Authentication required. User is unauthenticated.',
+        writes: {},
+      });
+      process.env.AGY_COMMAND = command;
 
       const { server, delegateHandler } = setupToolHandlers();
 
-      const res = await delegateHandler({
-        repoPath: tempRepoDir,
-        taskType: 'unit-test',
-        objective: 'Run test on auth failure',
-      });
+      const { payload, task } = await delegateAndWait(
+        delegateHandler,
+        server.components.taskRegistry,
+        {
+          repoPath: tempRepoDir,
+          taskType: 'unit-test',
+          objective: 'Run test on auth failure',
+        },
+      );
 
-      const resData = JSON.parse(res.content[0].text);
-      assert.equal(resData.status, 'running');
-      await new Promise((r) => setTimeout(r, 50));
-      const task = server.components.taskRegistry.getTask(resData.taskId);
+      assert.equal(payload.status, 'running');
       assert.equal(task.granularStatus, 'AUTH_REQUIRED');
       assert.equal(task.errorDetails.code, 'AUTH_REQUIRED');
       assert.match(task.errorDetails.message, /agy login/i);
     });
   });
 
-  describe('5. revise_task AGY Integration', () => {
+  describe('5. Worker that changes nothing', () => {
+    it('reports FAILED_WORKER rather than COMPLETED when the diff is empty', async () => {
+      const { command } = await createMockAgy(tempRepoDir, {
+        name: 'mock_noop.mjs',
+        writes: {},
+        stdout: 'I have completed the task.',
+      });
+      process.env.AGY_COMMAND = command;
+
+      const { server, delegateHandler } = setupToolHandlers();
+
+      const { task } = await delegateAndWait(delegateHandler, server.components.taskRegistry, {
+        repoPath: tempRepoDir,
+        taskType: 'unit-test',
+        objective: 'Silently do nothing',
+      });
+
+      assert.equal(task.granularStatus, 'FAILED_WORKER');
+      assert.equal(task.errorDetails.code, 'WORKER_NO_CHANGES');
+    });
+  });
+
+  describe('6. revise_task AGY Integration', () => {
     it('should spawn agy with --model profile flag and handle auth error in revise_task', async () => {
-      const mockScriptSuccess = path.join(tempRepoDir, 'mock_agy_success.js');
-      await fs.writeFile(mockScriptSuccess, `console.log("Success"); process.exit(0);`);
-      process.env.AGY_COMMAND = `${process.execPath} ${mockScriptSuccess}`;
+      const { command } = await createMockAgy(tempRepoDir, {
+        name: 'mock_agy_success.mjs',
+        writes: { 'feature.js': 'export const feature = 1;\n' },
+      });
+      process.env.AGY_COMMAND = command;
 
       const { server, delegateHandler, reviseHandler } = setupToolHandlers();
 
-      // Delegate task first
-      const delRes = await delegateHandler({
-        repoPath: tempRepoDir,
-        taskType: 'unit-test',
-        objective: 'Initial task objective',
-      });
-      const delData = JSON.parse(delRes.content[0].text);
-      assert.equal(delData.status, 'running');
-      const taskId = delData.taskId;
-      await new Promise((r) => setTimeout(r, 50));
-      const task = server.components.taskRegistry.getTask(taskId);
-      assert.notEqual(task.granularStatus, 'FAILED_WORKER');
-
-      // Revise task with auth failure script
-      const mockScriptAuthFail = path.join(tempRepoDir, 'mock_agy_auth_fail.js');
-      await fs.writeFile(
-        mockScriptAuthFail,
-        `console.error("Error: Please run agy login to authenticate."); process.exit(1);`,
+      const { payload: delData, task } = await delegateAndWait(
+        delegateHandler,
+        server.components.taskRegistry,
+        {
+          repoPath: tempRepoDir,
+          taskType: 'unit-test',
+          objective: 'Initial task objective',
+        },
       );
-      process.env.AGY_COMMAND = `${process.execPath} ${mockScriptAuthFail}`;
+
+      assert.equal(delData.status, 'running');
+      // The repo carries the mock scripts as untracked files, so a warning here
+      // is expected; what matters is that the task succeeded.
+      assert.ok(
+        ['COMPLETED', 'COMPLETED_WITH_WARNINGS'].includes(task.granularStatus),
+        `expected a successful terminal state, got ${task.granularStatus}`,
+      );
+
+      const { command: authFailCommand } = await createMockAgy(tempRepoDir, {
+        name: 'mock_agy_auth_fail.mjs',
+        exitCode: 1,
+        stdout: '',
+        stderr: 'Error: Please run agy login to authenticate.',
+        writes: {},
+      });
+      process.env.AGY_COMMAND = authFailCommand;
 
       const revRes = await reviseHandler({
-        taskId,
+        taskId: delData.taskId,
         revisionNotes: 'Add extra tests for edge cases',
       });
       const revData = JSON.parse(revRes.content[0].text);

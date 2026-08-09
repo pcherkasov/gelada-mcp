@@ -63,6 +63,45 @@ export function isAuthError(text: string): boolean {
   return patterns.some((p) => p.test(text));
 }
 
+/**
+ * Converts a path glob into a matcher. Supports the `**`, `*` and `?` forms that
+ * appear in task contracts; anything else is compared literally.
+ */
+function globToRegExp(pattern: string): RegExp {
+  const escaped = pattern
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*\*\//g, '(?:.*/)?')
+    .replace(/\*\*/g, '.*')
+    .replace(/\*/g, '[^/]*')
+    .replace(/\?/g, '[^/]');
+  return new RegExp(`^${escaped}$`);
+}
+
+/** Finds allowed paths that a disallowed pattern would forbid. */
+export function findContradictoryPaths(
+  allowedPaths?: string[],
+  disallowedPaths?: string[],
+): { allowed: string; disallowed: string }[] {
+  if (!allowedPaths?.length || !disallowedPaths?.length) return [];
+
+  const conflicts: { allowed: string; disallowed: string }[] = [];
+  for (const disallowed of disallowedPaths) {
+    let matcher: RegExp;
+    try {
+      matcher = globToRegExp(disallowed.trim());
+    } catch {
+      continue;
+    }
+    for (const allowed of allowedPaths) {
+      const candidate = allowed.trim().replace(/^\.\//, '');
+      if (matcher.test(candidate)) {
+        conflicts.push({ allowed, disallowed });
+      }
+    }
+  }
+  return conflicts;
+}
+
 export function registerDelegateTaskTool(
   mcpServer: McpServer,
   components: GeladaServerComponents,
@@ -187,6 +226,65 @@ export function registerDelegateTaskTool(
                   errorDetails,
                   error: errorDetails.message,
                   code: allowedPolicy.code,
+                },
+                null,
+                2,
+              ),
+            },
+          ],
+        };
+      }
+
+      // A path that is both permitted and forbidden is a self-contradictory
+      // contract: the worker would have no way to satisfy it, so reject up front
+      // rather than letting the worker guess.
+      const contradictoryPaths = findContradictoryPaths(
+        args.allowedPaths,
+        args.disallowedPaths,
+      );
+      if (contradictoryPaths.length > 0) {
+        const errorDetails: TaskErrorDetails = {
+          code: 'FAILED_POLICY',
+          message:
+            `Contract conflict: ${contradictoryPaths
+              .map((c) => `allowedPath "${c.allowed}" is excluded by disallowedPath "${c.disallowed}"`)
+              .join('; ')}. Remove the overlap so the write boundary is unambiguous.`,
+          category: 'policy',
+          stage: 'FAILED_POLICY',
+          raw: contradictoryPaths,
+        };
+        components.taskRegistry.transitionTask(
+          taskId,
+          'FAILED_POLICY',
+          errorDetails.message,
+          errorDetails,
+        );
+        await artifacts
+          .saveTaskBundle(taskId, {
+            status: 'failed',
+            granularStatus: 'FAILED_POLICY',
+            stateHistory: components.taskRegistry.getTask(taskId)?.stateHistory,
+            errorDetails,
+            timestamps: components.taskRegistry.getTask(taskId)?.timestamps,
+            taskType: args.taskType,
+            objective: args.objective,
+            repoPath,
+          })
+          .catch(() => {});
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(
+                {
+                  taskId,
+                  status: 'failed',
+                  granularStatus: 'FAILED_POLICY',
+                  stateHistory: components.taskRegistry.getTask(taskId)?.stateHistory,
+                  errorDetails,
+                  error: errorDetails.message,
+                  code: 'FAILED_POLICY',
                 },
                 null,
                 2,

@@ -7,6 +7,7 @@ import { RepositoryInspector } from '../dist/components/repository-inspector.js'
 import { WorktreeManager } from '../dist/components/worktree-manager.js';
 import { AntigravityDriver, sanitizeEnvironment } from '../dist/components/worker-driver.js';
 import { VerificationEngine } from '../dist/components/verification-engine.js';
+import { ModelRouter } from '../dist/components/model-router.js';
 import { PolicyEngine } from '../dist/components/policy-engine.js';
 import { ContractValidator } from '../dist/components/contract-validator.js';
 import { ProcessSupervisor } from '../dist/components/process-supervisor.js';
@@ -105,6 +106,7 @@ test('M13 Challenger 2: Zero-Trust Diff Verification via inspect_task', async (t
     worktreeManager,
     workerDriver,
     verificationEngine,
+    modelRouter: new ModelRouter(),
     policyEngine,
     contractValidator,
     supervisor,

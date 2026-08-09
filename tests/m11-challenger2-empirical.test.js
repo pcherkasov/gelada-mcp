@@ -12,6 +12,24 @@ import {
   DEFAULT_GELADA_CONFIG,
 } from '../dist/cli/commands/setup.js';
 
+/**
+ * The server is registered with an absolute entrypoint rather than the bare
+ * `gelada` name, so the registration survives PATH changes (node version
+ * managers in particular). Assert the shape, not one specific spelling.
+ */
+function assertGeladaRegistration(entry) {
+  assert.ok(entry, 'gelada-mcp must be registered');
+  assert.ok(typeof entry.command === 'string' && entry.command.length > 0);
+  assert.deepEqual(entry.args.slice(-2), ['mcp', 'serve']);
+  if (entry.command !== 'gelada') {
+    assert.ok(
+      entry.args.some((a) => String(a).endsWith('gelada.js')),
+      `expected an absolute gelada entrypoint in args, got ${JSON.stringify(entry.args)}`,
+    );
+  }
+}
+
+
 describe('Milestone 11 Challenger 2 — Setup & Client Integration Empirical Stress Suite', () => {
   let tempDir;
   let originalEnv;
@@ -153,10 +171,7 @@ describe('Milestone 11 Challenger 2 — Setup & Client Integration Empirical Str
       assert.ok(syncFs.existsSync(path.join(codexDir, 'config.json')));
 
       const content = JSON.parse(await fs.readFile(path.join(codexDir, 'config.json'), 'utf-8'));
-      assert.deepEqual(content.mcpServers['gelada-mcp'], {
-        command: 'gelada',
-        args: ['mcp', 'serve'],
-      });
+      assertGeladaRegistration(content.mcpServers['gelada-mcp']);
     });
 
     it('gracefully skips uninstallation when client config files do not exist', () => {
@@ -217,10 +232,7 @@ describe('Milestone 11 Challenger 2 — Setup & Client Integration Empirical Str
       assert.equal(update.action, 'registered');
 
       const parsed = JSON.parse(await fs.readFile(configPath, 'utf-8'));
-      assert.deepEqual(parsed.mcpServers['gelada-mcp'], {
-        command: 'gelada',
-        args: ['mcp', 'serve'],
-      });
+      assertGeladaRegistration(parsed.mcpServers['gelada-mcp']);
     });
 
     it('handles non-object JSON values (e.g. primitive 123) without process crash', async () => {
@@ -342,10 +354,7 @@ describe('Milestone 11 Challenger 2 — Setup & Client Integration Empirical Str
       const updated = JSON.parse(await fs.readFile(configPath, 'utf-8'));
 
       // Check gelada-mcp is added
-      assert.deepEqual(updated.mcpServers['gelada-mcp'], {
-        command: 'gelada',
-        args: ['mcp', 'serve'],
-      });
+      assertGeladaRegistration(updated.mcpServers['gelada-mcp']);
 
       // Check pre-existing servers are 100% untouched
       assert.deepEqual(updated.mcpServers['alpha-mcp'], originalConfig.mcpServers['alpha-mcp']);

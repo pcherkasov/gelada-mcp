@@ -6,6 +6,24 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { detectMcpClients, updateClientConfigs, runSetup } from '../dist/cli/commands/setup.js';
 
+/**
+ * The server is registered with an absolute entrypoint rather than the bare
+ * `gelada` name, so the registration survives PATH changes (node version
+ * managers in particular). Assert the shape, not one specific spelling.
+ */
+function assertGeladaRegistration(entry) {
+  assert.ok(entry, 'gelada-mcp must be registered');
+  assert.ok(typeof entry.command === 'string' && entry.command.length > 0);
+  assert.deepEqual(entry.args.slice(-2), ['mcp', 'serve']);
+  if (entry.command !== 'gelada') {
+    assert.ok(
+      entry.args.some((a) => a.endsWith('gelada.js')),
+      `expected an absolute gelada entrypoint in args, got ${JSON.stringify(entry.args)}`,
+    );
+  }
+}
+
+
 const execFileAsync = promisify(execFile);
 const GELADA_BIN = path.resolve(process.cwd(), 'bin/gelada.js');
 
@@ -124,15 +142,14 @@ async function testNonClobberingAddition() {
     assert.ok(updatedClaude.mcpServers['postgres-mcp']);
     assert.ok(updatedClaude.mcpServers['filesystem']);
     assert.ok(updatedClaude.mcpServers['gelada-mcp']);
-    assert.equal(updatedClaude.mcpServers['gelada-mcp'].command, 'gelada');
-    assert.deepEqual(updatedClaude.mcpServers['gelada-mcp'].args, ['mcp', 'serve']);
-
+    assertGeladaRegistration(updatedClaude.mcpServers['gelada-mcp']);
+    
     // Verify Codex config
     const updatedCodex = JSON.parse(fs.readFileSync(codexFile, 'utf-8'));
     assert.equal(updatedCodex.model, 'gpt-4o');
     assert.ok(updatedCodex.mcpServers['stripe-mcp']);
     assert.ok(updatedCodex.mcpServers['gelada-mcp']);
-    assert.equal(updatedCodex.mcpServers['gelada-mcp'].command, 'gelada');
+    assertGeladaRegistration(updatedCodex.mcpServers['gelada-mcp']);
 
     pass('Non-clobbering addition preserving multiple existing servers and custom properties');
   } finally {
