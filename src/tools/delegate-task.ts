@@ -1,6 +1,8 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { GeladaServerComponents } from '../server.js';
+import { GeladaServerComponents, artifactsFor } from '../server.js';
+import { buildWorkerInvocation, buildWorkerPrompt } from '../components/worker-invocation.js';
+import { ModelRouterError } from '../components/model-router.js';
 import {
   GranularTaskState,
   TaskErrorDetails,
@@ -19,7 +21,16 @@ export const delegateTaskInputSchema = z.object({
   allowedPaths: z
     .array(z.string())
     .optional()
-    .describe('Allowed file paths or glob patterns for worker edits'),
+    .describe(
+      'Write boundary: file paths or glob patterns the worker may create or modify. ' +
+        'Listed files do not need to exist yet.',
+    ),
+  requiredFiles: z
+    .array(z.string())
+    .optional()
+    .describe(
+      'Precondition: files that must already exist in the repository before the task runs.',
+    ),
   disallowedPaths: z
     .array(z.string())
     .optional()
@@ -62,6 +73,7 @@ export function registerDelegateTaskTool(
     delegateTaskInputSchema.shape,
     async (args) => {
       const repoPath = args.repoPath ?? process.cwd();
+      const artifacts = artifactsFor(components, repoPath);
       const taskId = `task-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 
       // 1. Task Creation & Registration with CREATED state
@@ -96,7 +108,7 @@ export function registerDelegateTaskTool(
           errorDetails.message,
           errorDetails,
         );
-        await components.artifactManager
+        await artifacts
           .saveTaskBundle(taskId, {
             status: 'failed',
             granularStatus: 'FAILED_CONTRACT',
@@ -149,7 +161,7 @@ export function registerDelegateTaskTool(
           errorDetails.message,
           errorDetails,
         );
-        await components.artifactManager
+        await artifacts
           .saveTaskBundle(taskId, {
             status: 'failed',
             granularStatus: 'FAILED_POLICY',
@@ -201,7 +213,7 @@ export function registerDelegateTaskTool(
           errorDetails.message,
           errorDetails,
         );
-        await components.artifactManager
+        await artifacts
           .saveTaskBundle(taskId, {
             status: 'failed',
             granularStatus: 'FAILED_POLICY',
@@ -253,7 +265,7 @@ export function registerDelegateTaskTool(
             errorDetails.message,
             errorDetails,
           );
-          await components.artifactManager
+          await artifacts
             .saveTaskBundle(taskId, {
               status: 'failed',
               granularStatus: 'FAILED_POLICY',
@@ -291,7 +303,7 @@ export function registerDelegateTaskTool(
 
       // 5. Repository Readiness Check
       const repoValidation = await components.repositoryInspector.validateRepoReady(repoPath, {
-        checkFiles: args.allowedPaths,
+        checkFiles: args.requiredFiles,
       });
       if (!repoValidation.valid) {
         const errorDetails: TaskErrorDetails = {
@@ -307,7 +319,7 @@ export function registerDelegateTaskTool(
           errorDetails.message,
           errorDetails,
         );
-        await components.artifactManager
+        await artifacts
           .saveTaskBundle(taskId, {
             status: 'failed',
             granularStatus: 'FAILED_POLICY',
@@ -354,16 +366,14 @@ export function registerDelegateTaskTool(
         const worktree = await components.worktreeManager.createWorktree(taskId, { repoPath });
         components.taskRegistry.updateTask(taskId, { worktreeId: worktree.worktreeId });
 
-        const promptSections = [
-          `Objective: ${args.objective}`,
-          args.context ? `Context: ${args.context}` : '',
-          args.acceptanceCriteria
-            ? `Acceptance Criteria:\n${args.acceptanceCriteria.map((c) => `- ${c}`).join('\n')}`
-            : '',
-          args.allowedPaths ? `Allowed Paths: ${args.allowedPaths.join(', ')}` : '',
-          args.disallowedPaths ? `Disallowed Paths: ${args.disallowedPaths.join(', ')}` : '',
-        ].filter(Boolean);
-        const prompt = promptSections.join('\n\n');
+        const prompt = buildWorkerPrompt({
+          objective: args.objective,
+          context: args.context,
+          acceptanceCriteria: args.acceptanceCriteria,
+          allowedPaths: args.allowedPaths,
+          disallowedPaths: args.disallowedPaths,
+          verificationCommands: args.verificationCommands,
+        });
 
         if (args.repoPath) {
           components.policyEngine.loadProjectPolicy(args.repoPath);
@@ -371,8 +381,8 @@ export function registerDelegateTaskTool(
 
         const effectivePolicy = components.policyEngine.getEffectivePolicy();
         const modelProfile =
-          args.modelProfile ?? effectivePolicy.defaultModelProfile ?? 'default';
-        const resolvedModel = components.modelRouter.resolveAgyModel(modelProfile);
+          args.modelProfile ?? effectivePolicy.defaultModelProfile ?? 'DEFAULT';
+        const resolvedModel = await components.modelRouter.resolveAgyModel(modelProfile);
 
         // 7. Transition to READY
         components.taskRegistry.transitionTask(
@@ -389,14 +399,22 @@ export function registerDelegateTaskTool(
         );
 
         const workerCommand = process.env.AGY_COMMAND || 'agy';
-        const workerArgs = ['--model', resolvedModel, '--prompt', prompt];
+        const effectiveTimeoutSeconds = args.timeoutSeconds ?? effectivePolicy.taskTimeout;
+        const invocation = await buildWorkerInvocation({
+          workspacePath: worktree.path,
+          prompt,
+          model: resolvedModel,
+          timeoutSeconds: effectiveTimeoutSeconds,
+          autoApprove: effectivePolicy.workerAutoApprove,
+          sandbox: effectivePolicy.workerSandbox,
+        });
 
         const workerHandle = await components.workerDriver.spawnWorker({
           taskId,
           command: workerCommand,
-          args: workerArgs,
+          args: invocation.args,
           cwd: worktree.path,
-          timeoutMs: args.timeoutSeconds ? args.timeoutSeconds * 1000 : undefined,
+          timeoutMs: effectiveTimeoutSeconds ? effectiveTimeoutSeconds * 1000 : undefined,
           sandbox: components.policyEngine.config.sandbox,
           sandboxImage: components.policyEngine.config.sandboxImage,
         });
@@ -407,6 +425,10 @@ export function registerDelegateTaskTool(
         Promise.resolve().then(async () => {
           try {
             const workerResult = await workerHandle.promise;
+
+            // Drop the externalised prompt file before diffing so it never
+            // shows up as part of the worker's changes.
+            await invocation.cleanup();
 
             const currentTaskState = components.taskRegistry.getTask(taskId)?.granularStatus;
             if (currentTaskState === 'CANCELLED' || currentTaskState === 'DISCARDED') {
@@ -428,7 +450,7 @@ export function registerDelegateTaskTool(
                 errorDetails.message,
                 errorDetails,
               );
-              await components.artifactManager
+              await artifacts
                 .saveTaskBundle(taskId, {
                   status: 'failed',
                   granularStatus: 'AUTH_REQUIRED',
@@ -474,6 +496,8 @@ export function registerDelegateTaskTool(
             let finalGranularState: GranularTaskState = 'COMPLETED';
             let errorDetails: TaskErrorDetails | undefined = undefined;
 
+            const producedNoChanges = (diffResult.changedFiles?.length ?? 0) === 0;
+
             if (workerResult.exitCode !== 0) {
               finalGranularState = 'FAILED_WORKER';
               errorDetails = {
@@ -481,6 +505,28 @@ export function registerDelegateTaskTool(
                 message: `Worker process exited with non-zero exit code ${workerResult.exitCode}`,
                 category: 'execution',
                 stage: 'FAILED_WORKER',
+              };
+            } else if (producedNoChanges) {
+              // A clean exit that changed nothing is a failure, not a success.
+              // The worker CLI exits 0 when it silently skips work — for example
+              // when it lacked write permission, or resolved a workspace other
+              // than the one it was pointed at. Reporting COMPLETED here would
+              // hand the leader agent an empty patch and call it done.
+              finalGranularState = 'FAILED_WORKER';
+              errorDetails = {
+                code: 'WORKER_NO_CHANGES',
+                message:
+                  'Worker exited successfully but changed no files. ' +
+                  'This usually means it could not write to the workspace. ' +
+                  'Check inspect_task mode="logs" for the worker output, and run ' +
+                  '"gelada doctor" to verify the worker CLI can edit files headlessly.',
+                category: 'execution',
+                stage: 'FAILED_WORKER',
+                raw: {
+                  exitCode: workerResult.exitCode,
+                  stdoutTail: workerResult.stdout.slice(-2000),
+                  stderrTail: workerResult.stderr.slice(-2000),
+                },
               };
             } else if (
               verificationResults.length > 0 &&
@@ -507,7 +553,7 @@ export function registerDelegateTaskTool(
             );
 
             // 11. Persist artifact bundle
-            await components.artifactManager.saveTaskBundle(taskId, {
+            await artifacts.saveTaskBundle(taskId, {
               taskContract: {
                 taskId,
                 description: args.objective,
@@ -551,14 +597,25 @@ export function registerDelegateTaskTool(
               },
             });
 
-            // 13. Trigger automatic artifact retention cleanup
+            // 13. Release the worktree when the worker left nothing behind.
+            //     A worktree that does contain changes is kept so the leader can
+            //     still inspect or apply them; discard_task frees it explicitly.
+            if (producedNoChanges) {
+              await components.worktreeManager
+                .removeWorktree(worktree.worktreeId, { force: true })
+                .catch(() => {});
+            }
+
+            // 14. Trigger automatic artifact retention cleanup
             try {
               const effectivePolicy = components.policyEngine.getEffectivePolicy();
-              await components.artifactManager.cleanup(effectivePolicy?.retention);
+              await artifacts.cleanup(effectivePolicy?.retention);
             } catch (cleanupErr) {
               console.warn(`[ArtifactManager] Non-fatal cleanup warning for task ${taskId}:`, cleanupErr);
             }
           } catch (err: any) {
+            await invocation.cleanup().catch(() => {});
+
             let errorMessage = err.message || String(err);
             let errorCode = err.code || 'EXECUTION_FAILED';
             let granularState: GranularTaskState = 'FAILED_WORKER';
@@ -588,7 +645,7 @@ export function registerDelegateTaskTool(
 
             components.taskRegistry.transitionTask(taskId, granularState, errorMessage, errorDetails);
 
-            await components.artifactManager
+            await artifacts
               .saveTaskBundle(taskId, {
                 status: 'failed',
                 granularStatus: granularState,
@@ -628,7 +685,10 @@ export function registerDelegateTaskTool(
         let errorCode = err.code || 'EXECUTION_FAILED';
         let granularState: GranularTaskState = 'FAILED_WORKER';
 
-        if (
+        if (err instanceof ModelRouterError) {
+          errorCode = 'UNKNOWN_MODEL';
+          granularState = 'FAILED_CONTRACT';
+        } else if (
           err.code === 'ENOENT' ||
           err.cause?.code === 'ENOENT' ||
           err.code === 'WORKER_NOT_FOUND' ||
@@ -653,7 +713,7 @@ export function registerDelegateTaskTool(
 
         components.taskRegistry.transitionTask(taskId, granularState, errorMessage, errorDetails);
 
-        await components.artifactManager
+        await artifacts
           .saveTaskBundle(taskId, {
             status: 'failed',
             granularStatus: granularState,

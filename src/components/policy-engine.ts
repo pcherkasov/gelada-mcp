@@ -60,6 +60,10 @@ export interface PolicySchema {
   defaultModelProfile?: string;
   allowNetwork?: boolean;
   allowShellChaining?: boolean;
+  /** Pass the worker CLI's permission-bypass flag (required for headless writes). */
+  workerAutoApprove?: boolean;
+  /** Ask the worker CLI to restrict terminal commands during the run. */
+  workerSandbox?: boolean;
   allowedActions?: string[] | Set<string>;
   retention?: RetentionPolicySchema;
   sandbox?: 'none' | 'docker' | string;
@@ -74,6 +78,8 @@ export interface EffectivePolicy {
   blockedCommandPatterns: RegExp[];
   allowNetwork: boolean;
   allowShellChaining: boolean;
+  workerAutoApprove: boolean;
+  workerSandbox: boolean;
   allowedTaskTypes?: Set<string>;
   disallowedTaskTypes: Set<string>;
   allowedCommands?: Set<string>;
@@ -95,6 +101,8 @@ export interface PolicyConfig {
   blockedCommandPatterns: RegExp[];
   allowNetwork: boolean;
   allowShellChaining: boolean;
+  workerAutoApprove?: boolean;
+  workerSandbox?: boolean;
   allowedTaskTypes?: Set<string>;
   disallowedTaskTypes?: Set<string>;
   allowedCommands?: Set<string>;
@@ -136,6 +144,8 @@ interface NormalizedSchema {
   defaultModelProfile?: string;
   allowNetwork?: boolean;
   allowShellChaining?: boolean;
+  workerAutoApprove?: boolean;
+  workerSandbox?: boolean;
   allowedActions?: string[];
   retention?: NormalizedRetentionSchema;
   sandbox?: string;
@@ -368,6 +378,14 @@ function normalizePolicySchema(raw: PolicySchema | Partial<PolicyConfig>): Norma
     norm.allowShellChaining = raw.allowShellChaining;
   }
 
+  if (typeof raw.workerAutoApprove === 'boolean') {
+    norm.workerAutoApprove = raw.workerAutoApprove;
+  }
+
+  if (typeof raw.workerSandbox === 'boolean') {
+    norm.workerSandbox = raw.workerSandbox;
+  }
+
   const allowedActions = extractArrayOrSet(raw.allowedActions);
   if (allowedActions) {
     norm.allowedActions = allowedActions;
@@ -475,7 +493,7 @@ function computeArrayUnion(
 }
 
 function computeBooleanAnd(
-  key: 'allowNetwork' | 'allowShellChaining',
+  key: 'allowNetwork' | 'allowShellChaining' | 'workerAutoApprove' | 'workerSandbox',
   baseDefault: boolean,
   schemas: NormalizedSchema[],
 ): boolean {
@@ -560,6 +578,8 @@ export class PolicyEngine {
       ],
       allowNetwork: false,
       allowShellChaining: false,
+      workerAutoApprove: true,
+      workerSandbox: true,
       defaultModelProfile: 'default',
       sandbox: 'none',
     };
@@ -733,6 +753,16 @@ export class PolicyEngine {
 
     const allowNetwork = computeBooleanAnd('allowNetwork', t1.allowNetwork, activeSchemas);
     const allowShellChaining = computeBooleanAnd('allowShellChaining', t1.allowShellChaining, activeSchemas);
+    const workerAutoApprove = computeBooleanAnd(
+      'workerAutoApprove',
+      t1.workerAutoApprove ?? true,
+      activeSchemas,
+    );
+    const workerSandbox = computeBooleanAnd(
+      'workerSandbox',
+      t1.workerSandbox ?? true,
+      activeSchemas,
+    );
 
     let allowedActions = new Set(
       Array.from(t1.allowedActions).map((a) => a.trim().toLowerCase())
@@ -814,6 +844,8 @@ export class PolicyEngine {
       blockedCommandPatterns: t1.blockedCommandPatterns,
       allowNetwork,
       allowShellChaining,
+      workerAutoApprove,
+      workerSandbox,
       allowedTaskTypes,
       disallowedTaskTypes,
       allowedCommands,

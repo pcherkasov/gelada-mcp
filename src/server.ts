@@ -24,6 +24,26 @@ export interface GeladaServerComponents {
   artifactManager: ArtifactManager;
   taskRegistry: TaskRegistry;
   modelRouter: ModelRouter;
+  /**
+   * Returns an ArtifactManager rooted at a specific repository. Absent when the
+   * caller injected an explicit `artifactManager`, so tests keep full control.
+   */
+  artifactManagerFactory?: (repoPath: string) => ArtifactManager;
+}
+
+/**
+ * Resolves which ArtifactManager to use for a task. Artifacts belong to the
+ * repository the task targets, not to whatever directory the server happens to
+ * have been started in.
+ */
+export function artifactsFor(
+  components: GeladaServerComponents,
+  repoPath?: string,
+): ArtifactManager {
+  if (!repoPath || !components.artifactManagerFactory) {
+    return components.artifactManager;
+  }
+  return components.artifactManagerFactory(repoPath);
 }
 
 export class GeladaServer {
@@ -40,6 +60,23 @@ export class GeladaServer {
     const workerDriver =
       components?.workerDriver ?? new AntigravityDriver({ supervisor: processSupervisor });
 
+    // Only install the repo-scoping factory when the caller did not supply an
+    // ArtifactManager of its own; otherwise the injected instance would be
+    // bypassed for every task that names a repository.
+    const artifactCache = new Map<string, ArtifactManager>();
+    const artifactManagerFactory =
+      components?.artifactManagerFactory ??
+      (components?.artifactManager
+        ? undefined
+        : (repoPath: string): ArtifactManager => {
+            let existing = artifactCache.get(repoPath);
+            if (!existing) {
+              existing = new ArtifactManager({ repoRoot: repoPath });
+              artifactCache.set(repoPath, existing);
+            }
+            return existing;
+          });
+
     this.components = {
       contractValidator: components?.contractValidator ?? new ContractValidator(),
       policyEngine: components?.policyEngine ?? new PolicyEngine(),
@@ -51,6 +88,7 @@ export class GeladaServer {
       artifactManager: components?.artifactManager ?? new ArtifactManager(),
       taskRegistry: components?.taskRegistry ?? new TaskRegistry(),
       modelRouter: components?.modelRouter ?? new ModelRouter(),
+      artifactManagerFactory,
     };
 
     registerAllTools(this.mcpServer, this.components);

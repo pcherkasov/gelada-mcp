@@ -113,6 +113,12 @@ export interface WorkerOptions {
   maxBufferBytes?: number;
   sandbox?: string;
   sandboxImage?: string;
+  /**
+   * How the worker's stdin is wired. Defaults to 'ignore': the Antigravity CLI
+   * exits immediately with no output when handed an open stdin pipe it can
+   * never read from, so a pipe here silently breaks every task.
+   */
+  stdin?: 'ignore' | 'pipe' | 'inherit';
 }
 
 export interface WorkerResult {
@@ -375,6 +381,7 @@ export class AntigravityDriver {
         env: spawnEnv,
         detached: true,
         shell: false,
+        stdio: [options.stdin ?? 'ignore', 'pipe', 'pipe'],
       });
     } catch (err: any) {
       const isEnoent = err?.code === 'ENOENT';

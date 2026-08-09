@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { GeladaServerComponents } from '../server.js';
+import { buildWorkerInvocation, buildWorkerPrompt } from '../components/worker-invocation.js';
 import { isAuthError } from './delegate-task.js';
 import {
   GranularTaskState,
@@ -143,20 +144,18 @@ export function registerReviseTaskTool(
           'Preparing revision execution context',
         );
 
-        const promptSections = [
-          `Feedback: ${args.revisionNotes}`,
-          args.additionalCriteria
-            ? `Additional Criteria:\n${args.additionalCriteria.map((c) => `- ${c}`).join('\n')}`
-            : '',
-        ].filter(Boolean);
-        const prompt = promptSections.join('\n\n');
+        const prompt = buildWorkerPrompt({
+          objective: task.objective,
+          revisionNotes: args.revisionNotes,
+          acceptanceCriteria: args.additionalCriteria,
+        });
 
         if (task.repoPath) {
           components.policyEngine.loadProjectPolicy(task.repoPath);
         }
         const effectivePolicy = components.policyEngine.getEffectivePolicy();
-        const modelProfile = effectivePolicy.defaultModelProfile ?? 'default';
-        const resolvedModel = components.modelRouter.resolveAgyModel(modelProfile);
+        const modelProfile = effectivePolicy.defaultModelProfile ?? 'DEFAULT';
+        const resolvedModel = await components.modelRouter.resolveAgyModel(modelProfile);
 
         // Transition state to READY
         components.taskRegistry.transitionTask(
@@ -173,12 +172,19 @@ export function registerReviseTaskTool(
         );
 
         const workerCommand = process.env.AGY_COMMAND || 'agy';
-        const workerArgs = ['--model', resolvedModel, '--prompt', prompt];
+        const invocation = await buildWorkerInvocation({
+          workspacePath: worktree.path,
+          prompt,
+          model: resolvedModel,
+          timeoutSeconds: effectivePolicy.taskTimeout,
+          autoApprove: effectivePolicy.workerAutoApprove,
+          sandbox: effectivePolicy.workerSandbox,
+        });
 
         const workerHandle = await components.workerDriver.spawnWorker({
           taskId: args.taskId,
           command: workerCommand,
-          args: workerArgs,
+          args: invocation.args,
           cwd: worktree.path,
           env: {
             AGY_TASK_MODE: 'revise',
@@ -190,6 +196,7 @@ export function registerReviseTaskTool(
         components.taskRegistry.updateTask(args.taskId, { workerId: workerHandle.workerId });
 
         const workerResult = await workerHandle.promise;
+        await invocation.cleanup();
 
         const currentTaskState = components.taskRegistry.getTask(args.taskId)?.granularStatus;
         if (currentTaskState === 'CANCELLED' || currentTaskState === 'DISCARDED') {
