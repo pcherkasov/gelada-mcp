@@ -1,0 +1,7 @@
+# Default owner for everything in the repository.
+* @pcherkasov
+
+# Security boundary and release plumbing — changes here get the closest look.
+/SECURITY.md          @pcherkasov
+/.github/workflows/   @pcherkasov
+/scripts/             @pcherkasov
