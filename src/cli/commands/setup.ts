@@ -3,7 +3,11 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
+import * as readline from 'node:readline/promises';
+
 import { getConfigDir, getConfigPath, getDataDir, getLogDir } from '../utils/paths.js';
+import { runDiagnostics } from './doctor.js';
+import { runSmokeTest } from './smoke.js';
 
 export interface GeladaConfigSchema {
   version: string;
@@ -72,6 +76,49 @@ export interface SetupOptions {
   installClients?: boolean;
   client?: 'claude' | 'codex' | 'all' | string;
   homeDir?: string;
+  smoke?: boolean;
+  yes?: boolean;
+}
+
+/**
+ * Asks the operator to acknowledge that the worker runs with its own permission
+ * prompts disabled. It is enabled by default because nothing works without it,
+ * but it is the kind of default a user should meet at install time rather than
+ * discover in SECURITY.md later.
+ */
+async function confirmWorkerPermissions(assumeYes: boolean): Promise<boolean> {
+  const explanation = [
+    '',
+    'Worker permissions',
+    '------------------',
+    'The Antigravity CLI cannot ask for tool approval when it runs headlessly,',
+    'and it ignores its own allow-rules in that mode. Gelada therefore starts it',
+    'with permission prompts disabled — without that, the worker cannot write a',
+    'single file.',
+    '',
+    'What limits it instead: the worker only ever sees a disposable git worktree,',
+    'its environment is stripped of credentials, and terminal commands are',
+    'sandboxed. Your working tree is never exposed.',
+    '',
+    'You can switch this off per project with workerAutoApprove: false in',
+    '.gelada/policy.yaml — delegation then stops working. See SECURITY.md §4.',
+    '',
+  ].join('\n');
+
+  console.log(explanation);
+
+  if (assumeYes || !process.stdin.isTTY) {
+    console.log('Proceeding with worker permissions enabled (non-interactive).');
+    return true;
+  }
+
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answer = (await rl.question('Continue with worker permissions enabled? [Y/n] ')).trim();
+    return answer === '' || /^y(es)?$/i.test(answer);
+  } finally {
+    rl.close();
+  }
 }
 
 export interface SetupResult {
@@ -438,6 +485,8 @@ export function registerSetupCommand(program: Command): void {
     .option('--uninstall', 'Remove gelada-mcp server from detected client configuration files')
     .option('--remove', 'Alias for --uninstall')
     .option('--client <name>', 'Target specific client configuration (claude, codex, or all)')
+    .option('--no-smoke', 'Skip the end-to-end delegation check')
+    .option('-y, --yes', 'Accept the worker permission default without prompting')
     .action(async (options: SetupOptions) => {
       try {
         const result = await runSetup(options);
@@ -447,8 +496,10 @@ export function registerSetupCommand(program: Command): void {
           return;
         }
 
+        const isUninstallRun = Boolean(options.uninstall || options.remove);
+
         if (!options.quiet) {
-          const isUninstall = Boolean(options.uninstall || options.remove);
+          const isUninstall = isUninstallRun;
           if (isUninstall) {
             console.log('🗑️ Gelada MCP Client Uninstallation Completed');
           } else {
@@ -469,6 +520,52 @@ export function registerSetupCommand(program: Command): void {
               );
             }
           }
+        }
+
+        if (isUninstallRun || options.quiet) {
+          return;
+        }
+
+        // Diagnose before claiming success: a green setup with an unusable
+        // worker is exactly the state that wastes a user's afternoon.
+        const report = await runDiagnostics();
+        const blocking = report.checks.filter((c) => c.status === 'fail');
+        if (blocking.length > 0) {
+          console.log('\nSetup finished, but delegation is not ready yet:');
+          for (const check of blocking) {
+            console.log(`   [fail] ${check.name}: ${check.message}`);
+            if (check.remediation) console.log(`          → ${check.remediation}`);
+          }
+          console.log('\nFix the above, then run "gelada smoke" to confirm.');
+          process.exitCode = 1;
+          return;
+        }
+
+        const permissionsAccepted = await confirmWorkerPermissions(Boolean(options.yes));
+        if (!permissionsAccepted) {
+          console.log(
+            '\nLeaving worker permissions to your project policy. Set workerAutoApprove: false ' +
+              'in .gelada/policy.yaml to keep them off — delegation will not make changes.',
+          );
+        }
+
+        if (options.smoke === false) {
+          console.log('\nSkipped the delegation check. Run "gelada smoke" when you want it.');
+          return;
+        }
+
+        console.log('\nVerifying delegation end to end...');
+        const smoke = await runSmokeTest();
+        if (smoke.ok) {
+          console.log(
+            `[ok] A real task changed ${smoke.changedFiles?.join(', ')} in ` +
+              `${(smoke.durationMs / 1000).toFixed(1)}s. Gelada is ready.`,
+          );
+        } else {
+          console.error(`[fail] Delegation check failed: ${smoke.error ?? 'unknown error'}`);
+          if (smoke.remediation) console.error(`       → ${smoke.remediation}`);
+          console.error('       Configuration is in place, but tasks will not work yet.');
+          process.exitCode = 1;
         }
       } catch (err: unknown) {
         const errorMsg = err instanceof Error ? err.message : String(err);

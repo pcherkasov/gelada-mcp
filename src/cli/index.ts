@@ -8,6 +8,7 @@ import { registerCleanupCommand } from './commands/cleanup.js';
 import { registerModelsCommand } from './commands/models.js';
 import { registerUpdateCommand } from './commands/update.js';
 import { registerInitCommand } from './commands/init.js';
+import { registerSmokeCommand } from './commands/smoke.js';
 import { registerDebugBundleCommand } from './commands/debug-bundle.js';
 
 export function createCliProgram(): Command {
@@ -29,6 +30,7 @@ export function createCliProgram(): Command {
   registerModelsCommand(program);
   registerUpdateCommand(program);
   registerInitCommand(program);
+  registerSmokeCommand(program);
   registerDebugBundleCommand(program);
 
   return program;

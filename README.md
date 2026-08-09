@@ -72,9 +72,20 @@ npm link
 ```
 
 ### Initial Environment Setup
-Run `gelada setup` to scaffold global configuration files (`~/.config/gelada/config.yaml`), data paths, and automatically detect and register `gelada-mcp` with installed MCP clients:
+One command does the whole first run — it scaffolds configuration, registers
+Gelada with every MCP client it finds, runs diagnostics, explains the worker
+permission default, and then **delegates a real task to prove the pipeline
+works**:
 ```bash
 gelada setup
+```
+It exits non-zero if that final check fails, so a green setup means delegation
+actually works rather than merely that files were written. Add `--yes` for
+unattended runs and `--no-smoke` to skip the check.
+
+Run the check on its own at any time:
+```bash
+gelada smoke
 ```
 
 ### Uninstallation & Client Removal
@@ -171,15 +182,21 @@ Options:
 ```
 
 ### 2. `gelada doctor`
-Performs complete environment diagnostics (Node version, Git availability, worker CLI `agy` status, configuration directory permissions).
+Reports whether Gelada can actually run tasks: Node and Git versions, config
+directory permissions, and whether the worker CLI is installed and
+authenticated.
 ```bash
 gelada doctor [options]
 
 Options:
-  -v, --verbose             Enable detailed diagnostic outputs
-  --no-worker               Skip checking worker CLI (Antigravity) availability
-  --json                    Output diagnostic results in JSON format
+  -v, --verbose             Show per-check details
+  --no-worker               Skip worker CLI checks
+  --json                    Output the diagnostic report as JSON
+  --strict                  Exit non-zero if any check does not pass
 ```
+A run that completed exits 0 even when it has bad news, so scripts can read the
+report; only Gelada's own prerequisites fail the command. Use `--strict` to gate
+on a fully clean environment.
 
 ### 3. `gelada mcp serve`
 Launches the stdio transport server for MCP host clients.

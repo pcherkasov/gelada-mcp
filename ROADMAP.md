@@ -20,7 +20,7 @@ see [`README.md`](README.md); for the threat model see [`SECURITY.md`](SECURITY.
 | `agy` worker delegation end-to-end | working |
 | Test suite (474 tests) and CI | green |
 | Agent-side discoverability (MCP `instructions`, resources, prompts) | working |
-| One-command install with smoke verification | see Milestone 3 |
+| One-command install with smoke verification | working |
 
 ## Milestone 1 — Reliable worker execution ✅
 
@@ -69,13 +69,16 @@ know *when* delegation pays off.
 - [x] `gelada init` writes a short delegation policy into the target repo's
       `CLAUDE.md` / `AGENTS.md`
 
-## Milestone 3 — Frictionless install
+## Milestone 3 — Frictionless install ✅
 
-- [ ] `npx gelada-mcp setup` performs the whole first-run flow: dependency checks,
-      client registration, worker auth check, project policy scaffold
-- [ ] Setup finishes with a real smoke delegation; if it produces no diff, setup
-      reports failure rather than success
-- [ ] `doctor` reports accurate, machine-readable diagnostics (`--json`, `--verbose`)
+- [x] `gelada setup` performs the whole first-run flow: client registration,
+      dependency and worker-auth diagnostics, and an explicit account of the
+      worker permission default
+- [x] Setup finishes with a real delegation; if it produces no diff, setup exits
+      non-zero rather than claiming success. Also available on its own as
+      `gelada smoke`
+- [x] `doctor` reports accurate, machine-readable diagnostics (`--json`,
+      `--verbose`, `--strict`)
 
 ## Milestone 4 — Release
 
