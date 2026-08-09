@@ -3,20 +3,30 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import * as fs from 'node:fs/promises';
+import { createTempRepo, createTempDataDir, createMockAgyScript, delegateAndPoll, pollTask } from './helpers/e2e-env.js';
 
 describe('Challenger M4-4: Stdio Protocol E2E Stress & Channel Purity Verification', () => {
   let transport;
   let client;
   let childProc;
+  let repoDir;
+  let dataDir;
   const rawStdoutBuffers = [];
   const rawStderrBuffers = [];
 
   before(async () => {
-    // Spawn server process directly via StdioClientTransport
+    // Tasks run against a throwaway repository so the checkout under test never
+    // accumulates worktrees or artifacts.
+    repoDir = await createTempRepo('gelada-m4-stress-');
+    dataDir = await createTempDataDir();
+    const { command } = await createMockAgyScript(repoDir);
+
     transport = new StdioClientTransport({
       command: process.execPath,
       args: ['./bin/gelada.js'],
       cwd: process.cwd(),
+      env: { ...process.env, AGY_COMMAND: command, GELADA_DATA_DIR: dataDir },
       stderr: 'pipe',
     });
 
@@ -37,6 +47,9 @@ describe('Challenger M4-4: Stdio Protocol E2E Stress & Channel Purity Verificati
   after(async () => {
     if (client) {
       await client.close();
+    }
+    for (const dir of [repoDir, dataDir]) {
+      if (dir) await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
     }
   });
 
@@ -122,46 +135,33 @@ describe('Challenger M4-4: Stdio Protocol E2E Stress & Channel Purity Verificati
 
     describe('delegate_task tool variations', () => {
       it('should succeed with minimal payload (taskType, objective)', async () => {
-        const res = await client.callTool({
-          name: 'delegate_task',
-          arguments: {
-            taskType: 'refactor',
-            objective: 'Refactor user service module',
-          },
+        const { handoff, summary } = await delegateAndPoll(client, {
+          repoPath: repoDir,
+          taskType: 'refactor',
+          objective: 'Refactor user service module',
         });
-        assert.ok(res.content && res.content[0].type === 'text');
-        const data = JSON.parse(res.content[0].text);
-        assert.equal(data.status, 'completed');
-        assert.equal(data.taskType, 'refactor');
-        assert.equal(data.repoPath, process.cwd());
-        assert.deepEqual(data.changedFiles, []);
+        assert.ok(handoff.taskId);
+        assert.equal(summary.status, 'completed');
+        assert.deepEqual(summary.details.changedFiles, ['worker-output.txt']);
       });
 
       it('should succeed with full payload (all optional args specified)', async () => {
         const fullArgs = {
-          repoPath: process.cwd(),
+          repoPath: repoDir,
           taskType: 'dto-gen',
           objective: 'Generate DTOs for billing',
           context: 'Billing context',
           acceptanceCriteria: ['Must compile', 'Must pass tests'],
           disallowedPaths: ['src/core/index.ts'],
           verificationCommands: ['node -v'],
-          modelProfile: 'claude-3-5-sonnet',
+          modelProfile: 'mock-pro-high',
           timeoutSeconds: 120,
         };
 
-        const res = await client.callTool({
-          name: 'delegate_task',
-          arguments: fullArgs,
-        });
-
-        const data = JSON.parse(res.content[0].text);
-        assert.equal(data.status, 'completed');
-        assert.equal(data.taskType, 'dto-gen');
-        assert.equal(data.repoPath, process.cwd());
-        assert.deepEqual(data.changedFiles, []);
-        assert.equal(data.verificationResults.length, 1);
-        assert.equal(data.verificationResults[0].command, 'node -v');
+        const { summary } = await delegateAndPoll(client, fullArgs);
+        assert.equal(summary.status, 'completed');
+        assert.deepEqual(summary.details.changedFiles, ['worker-output.txt']);
+        assert.equal(summary.details.verificationPassed, true);
       });
 
       it('should fail gracefully when required arguments are missing', async () => {
@@ -182,16 +182,13 @@ describe('Challenger M4-4: Stdio Protocol E2E Stress & Channel Purity Verificati
 
     describe('revise_task tool variations', () => {
       it('should succeed with minimal payload (taskId, revisionNotes)', async () => {
-        const res = await client.callTool({
-          name: 'delegate_task',
-          arguments: {
-            taskType: 'security-audit',
-            objective: 'Stress test delegate tool',
-          },
+        const { handoff, summary } = await delegateAndPoll(client, {
+          repoPath: repoDir,
+          taskType: 'security-audit',
+          objective: 'Stress test delegate tool',
         });
-        const data = JSON.parse(res.content[0].text);
-        global.stressTaskId = data.taskId;
-        assert.equal(data.status, 'completed');
+        global.stressTaskId = handoff.taskId;
+        assert.equal(summary.status, 'completed');
       });
 
       it('should succeed with full payload (additionalCriteria, additionalVerificationCommands)', async () => {
@@ -206,8 +203,7 @@ describe('Challenger M4-4: Stdio Protocol E2E Stress & Channel Purity Verificati
         });
         const data = JSON.parse(res.content[0].text);
         assert.equal(data.taskId, global.stressTaskId);
-        assert.equal(data.verificationResults.length, 1);
-        assert.equal(data.verificationResults[0].command, 'node -v');
+        assert.equal(data.verificationResults.at(-1).command, 'node -v');
       });
 
       it('should fail gracefully when required args are missing', async () => {

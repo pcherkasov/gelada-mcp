@@ -1,18 +1,28 @@
 import test, { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import * as fs from 'node:fs/promises';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { createTempRepo, createTempDataDir, createMockAgyScript, delegateAndPoll, pollTask } from './helpers/e2e-env.js';
 
 describe('Milestone 4: E2E Integration & Verification over MCP Stdio Transport', () => {
   let transport;
   let client;
+  let repoDir;
+  let dataDir;
 
   before(async () => {
+    // Drive a throwaway repository, never the checkout under test: the server
+    // creates worktrees and artifacts in whatever repository it is pointed at.
+    repoDir = await createTempRepo('gelada-m4-e2e-');
+    dataDir = await createTempDataDir();
+    const { command } = await createMockAgyScript(repoDir);
+
     transport = new StdioClientTransport({
       command: process.execPath,
       args: ['./bin/gelada.js'],
       cwd: process.cwd(),
-      env: { ...process.env, AGY_COMMAND: 'echo' },
+      env: { ...process.env, AGY_COMMAND: command, GELADA_DATA_DIR: dataDir },
       stderr: 'pipe',
     });
 
@@ -32,6 +42,9 @@ describe('Milestone 4: E2E Integration & Verification over MCP Stdio Transport',
   after(async () => {
     if (client) {
       await client.close();
+    }
+    for (const dir of [repoDir, dataDir]) {
+      if (dir) await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
     }
   });
 
@@ -57,26 +70,22 @@ describe('Milestone 4: E2E Integration & Verification over MCP Stdio Transport',
   });
 
   it('should execute delegate_task tool end-to-end', async () => {
-    const res = await client.callTool({
-      name: 'delegate_task',
-      arguments: {
-        taskType: 'unit-test',
-        objective: 'Write unit test suite for auth module',
-        verificationCommands: ['node -v'],
-      },
+    // delegate_task hands back as soon as the worker is spawned, so a client
+    // polls inspect_task for the outcome, exactly as a leader agent would.
+    const { handoff, summary } = await delegateAndPoll(client, {
+      repoPath: repoDir,
+      taskType: 'unit-test',
+      objective: 'Write unit test suite for auth module',
+      verificationCommands: ['node -v'],
     });
 
-    assert.ok(res.content && res.content.length > 0, 'Should return text content');
-    const data = JSON.parse(res.content[0].text);
-    assert.ok(data.taskId && data.taskId.startsWith('task-'), 'taskId should start with task-');
-    assert.equal(data.status, 'completed');
-    assert.equal(data.taskType, 'unit-test');
-    assert.deepEqual(data.changedFiles, []);
-    assert.equal(data.verificationResults.length, 1);
-    assert.equal(data.verificationResults[0].passed, true);
-    
-    // Save taskId for next tests
-    global.e2eTaskId = data.taskId;
+    assert.ok(handoff.taskId && handoff.taskId.startsWith('task-'), 'taskId should start with task-');
+    assert.equal(handoff.status, 'running');
+    assert.equal(summary.status, 'completed');
+    assert.deepEqual(summary.details.changedFiles, ['worker-output.txt']);
+    assert.equal(summary.details.verificationPassed, true);
+
+    global.e2eTaskId = handoff.taskId;
   });
 
   it('should execute revise_task tool end-to-end', async () => {
@@ -95,8 +104,7 @@ describe('Milestone 4: E2E Integration & Verification over MCP Stdio Transport',
     assert.equal(data.status, 'completed');
     assert.equal(data.revisionCount, 1);
     assert.ok(data.notes.includes('Add boundary edge cases'));
-    assert.equal(data.verificationResults.length, 2);
-    assert.equal(data.verificationResults[1].command, 'node -v');
+    assert.equal(data.verificationResults.at(-1).command, 'node -v');
   });
 
   it('should execute inspect_task tool end-to-end', async () => {

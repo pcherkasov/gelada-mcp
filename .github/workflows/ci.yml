@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: build & test (node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['18', '20', '22']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        # The suite never contacts the real worker CLI; every task-level test
+        # drives a mock so CI needs no Antigravity install or credentials.
+        run: npm test
+
+      - name: Fail if the suite left git worktrees behind
+        run: |
+          count=$(git worktree list | wc -l)
+          if [ "$count" -ne 1 ]; then
+            echo "Test run leaked $((count - 1)) git worktree(s):"
+            git worktree list
+            exit 1
+          fi
+
+      - name: Check the published package stays small
+        run: |
+          npm pack --dry-run --json > pack.json
+          node -e "
+            const [pkg] = require('./pack.json');
+            const mb = pkg.size / 1024 / 1024;
+            console.log(\`package: \${pkg.entryCount} files, \${mb.toFixed(2)} MB\`);
+            if (mb > 2) { console.error('Package exceeds 2 MB'); process.exit(1); }
+          "

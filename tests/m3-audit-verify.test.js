@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createGeladaServer } from '../dist/server.js';
+import * as fsPromises from 'node:fs/promises';
+import { createTempRepo, createMockAgyScript } from './helpers/e2e-env.js';
 
 console.log('=== STARTING M3 AUDIT EMPIRICAL VERIFICATION TESTS ===');
 
@@ -31,11 +33,20 @@ async function testToolRegistration() {
 
 // Subtest 2: End-to-End JSON-RPC tools/list and tools/call test over stdio child process
 async function testJsonRpcTools() {
+  // The server creates a worktree in whatever repository a task targets, so
+  // point it at a temporary one rather than this checkout.
+  const auditRepo = await createTempRepo('gelada-m3-audit-');
+  const { command: mockAgy } = await createMockAgyScript(auditRepo);
+
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ['./bin/gelada.js'], {
       cwd: process.cwd(),
+      env: { ...process.env, AGY_COMMAND: mockAgy },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
+
+    const cleanupRepo = () =>
+      fsPromises.rm(auditRepo, { recursive: true, force: true }).catch(() => {});
 
     let stderrData = '';
     let stdoutBuffer = '';
@@ -96,8 +107,10 @@ async function testJsonRpcTools() {
           assert.ok(delegateRes.result, 'Result should exist for delegate_task call');
           const delegateContent = JSON.parse(delegateRes.result.content[0].text);
           assert.ok(delegateContent.taskId.startsWith('task-'));
-          assert.equal(delegateContent.status, 'completed');
-          assert.equal(delegateContent.taskType, 'unit-test');
+          // delegate_task hands back as soon as the worker is spawned; this
+          // suite checks the protocol shape, not the eventual task outcome.
+          assert.equal(delegateContent.status, 'running');
+          assert.equal(delegateContent.granularStatus, 'RUNNING');
 
           // Response 4: tools/call doctor
           const doctorRes = responses.get(4);
@@ -108,6 +121,7 @@ async function testJsonRpcTools() {
 
           pass('End-to-End JSON-RPC tools/list and tools/call over stdio');
           child.kill();
+          cleanupRepo();
           resolve();
         } catch (err) {
           child.kill();
@@ -150,6 +164,7 @@ async function testJsonRpcTools() {
         params: {
           name: 'delegate_task',
           arguments: {
+            repoPath: auditRepo,
             taskType: 'unit-test',
             objective: 'Write unit tests for authentication module',
           },

@@ -643,14 +643,11 @@ export function registerDelegateTaskTool(
 
             const finalLegacyStatus = mapGranularToLegacyStatus(finalGranularState);
 
-            components.taskRegistry.transitionTask(
-              taskId,
-              finalGranularState,
-              `Task reached terminal state ${finalGranularState}`,
-              errorDetails,
-            );
-
-            // 11. Persist artifact bundle
+            // 11. Persist the artifact bundle *before* announcing the terminal
+            //     state. A leader agent polls inspect_task and acts the moment a
+            //     task looks finished; publishing the state first leaves a window
+            //     where the task reads as COMPLETED but its diff and artifacts
+            //     are not on disk yet.
             await artifacts.saveTaskBundle(taskId, {
               taskContract: {
                 taskId,
@@ -684,16 +681,23 @@ export function registerDelegateTaskTool(
               revisions: 0,
             });
 
-            // 12. Update registry record details
-            components.taskRegistry.updateTask(taskId, {
-              latestDiff: diffResult.rawDiff,
-              changedFiles: diffResult.changedFiles,
-              verificationResults,
-              workerOutput: {
-                stdout: workerResult.stdout,
-                stderr: workerResult.stderr,
+            // 12. Publish the terminal state together with its results, so a
+            //     task never reads as finished without them.
+            components.taskRegistry.transitionTask(
+              taskId,
+              finalGranularState,
+              `Task reached terminal state ${finalGranularState}`,
+              errorDetails,
+              {
+                latestDiff: diffResult.rawDiff,
+                changedFiles: diffResult.changedFiles,
+                verificationResults,
+                workerOutput: {
+                  stdout: workerResult.stdout,
+                  stderr: workerResult.stderr,
+                },
               },
-            });
+            );
 
             // 13. Release the worktree when the worker left nothing behind.
             //     A worktree that does contain changes is kept so the leader can

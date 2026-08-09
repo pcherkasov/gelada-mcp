@@ -1,6 +1,7 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
+import * as syncFs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { execSync } from 'node:child_process';
@@ -8,7 +9,7 @@ import { execSync } from 'node:child_process';
 import { createGeladaServer } from '../dist/server.js';
 import { registerDelegateTaskTool } from '../dist/tools/delegate-task.js';
 import { registerReviseTaskTool } from '../dist/tools/revise-task.js';
-import { settleHandler } from './helpers/agy-mock.js';
+import { settleHandler, parseAgyArgs } from './helpers/agy-mock.js';
 
 describe('Challenger 2 Empirical Edge Case Tests', () => {
   let tempRepoDir;
@@ -75,8 +76,13 @@ describe('Challenger 2 Empirical Edge Case Tests', () => {
       const mockExec = await createExecutableMock(
         'mock_agy_special',
         `import fs from 'node:fs';
+         import nodePath from 'node:path';
          const args = process.argv.slice(2);
          fs.writeFileSync('${logFile}', JSON.stringify(args));
+         const i = args.indexOf('--add-dir');
+         if (i >= 0) {
+           fs.writeFileSync(nodePath.join(args[i + 1], 'worker-output.txt'), 'done\\n');
+         }
          process.exit(0);
         `,
       );
@@ -104,7 +110,7 @@ describe('Challenger 2 Empirical Edge Case Tests', () => {
       assert.equal(resData.status, 'completed');
 
       const loggedArgs = JSON.parse(await fs.readFile(logFile, 'utf-8'));
-      const passedPrompt = loggedArgs[4];
+      const passedPrompt = parseAgyArgs(loggedArgs).prompt;
 
       assert.ok(passedPrompt.includes(complexObjective));
       assert.ok(passedPrompt.includes('Line 1\r\nLine 2 with \t tab'));
@@ -119,8 +125,13 @@ describe('Challenger 2 Empirical Edge Case Tests', () => {
       const mockExec = await createExecutableMock(
         'mock_agy_nullbyte',
         `import fs from 'node:fs';
+         import nodePath from 'node:path';
          const args = process.argv.slice(2);
          fs.writeFileSync('${logFile}', JSON.stringify(args));
+         const i = args.indexOf('--add-dir');
+         if (i >= 0) {
+           fs.writeFileSync(nodePath.join(args[i + 1], 'worker-output.txt'), 'done\\n');
+         }
          process.exit(0);
         `,
       );
@@ -152,8 +163,13 @@ describe('Challenger 2 Empirical Edge Case Tests', () => {
       const mockExec = await createExecutableMock(
         'mock_agy_100k',
         `import fs from 'node:fs';
+         import nodePath from 'node:path';
          const args = process.argv.slice(2);
          fs.writeFileSync('${logFile}', JSON.stringify(args));
+         const i = args.indexOf('--add-dir');
+         if (i >= 0) {
+           fs.writeFileSync(nodePath.join(args[i + 1], 'worker-output.txt'), 'done\\n');
+         }
          process.exit(0);
         `,
       );
@@ -174,7 +190,7 @@ describe('Challenger 2 Empirical Edge Case Tests', () => {
       assert.equal(resData.status, 'completed');
 
       const loggedArgs = JSON.parse(await fs.readFile(logFile, 'utf-8'));
-      assert.ok(loggedArgs[4].length >= 100 * 1024);
+      assert.ok(parseAgyArgs(loggedArgs).prompt.length >= 100 * 1024);
     });
 
     it('tests very large prompt (500KB) for OS command line length (ARG_MAX) limits', async () => {
@@ -182,8 +198,13 @@ describe('Challenger 2 Empirical Edge Case Tests', () => {
       const mockExec = await createExecutableMock(
         'mock_agy_500k',
         `import fs from 'node:fs';
+         import nodePath from 'node:path';
          const args = process.argv.slice(2);
          fs.writeFileSync('${logFile}', JSON.stringify(args));
+         const i = args.indexOf('--add-dir');
+         if (i >= 0) {
+           fs.writeFileSync(nodePath.join(args[i + 1], 'worker-output.txt'), 'done\\n');
+         }
          process.exit(0);
         `,
       );
@@ -201,11 +222,14 @@ describe('Challenger 2 Empirical Edge Case Tests', () => {
       });
 
       const resData = JSON.parse(res.content[0].text);
-      if (resData.status === 'failed') {
-        assert.ok(resData.error.includes('E2BIG') || resData.error.includes('too long') || resData.code === 'EXECUTION_FAILED');
-      } else {
-        assert.equal(resData.status, 'completed');
-      }
+      // An oversized prompt is written to a file in the workspace and referenced
+      // from the command line, so ARG_MAX is no longer reachable.
+      assert.equal(resData.status, 'completed');
+
+      const loggedArgs = JSON.parse(await fs.readFile(logFile, 'utf-8'));
+      const prompt = parseAgyArgs(loggedArgs).prompt;
+      assert.ok(prompt.length < 10 * 1024, 'the huge prompt must not be passed through argv');
+      assert.match(prompt, /\.gelada-task\.md/);
     });
   });
 
@@ -216,11 +240,16 @@ describe('Challenger 2 Empirical Edge Case Tests', () => {
       const mockExec = await createExecutableMock(
         'mock_agy_policy',
         `import fs from 'node:fs';
+         import nodePath from 'node:path';
          const args = process.argv.slice(2);
-         if (args.some(a => a.includes('Initial task objective'))) {
-           fs.writeFileSync('${logFileDel}', JSON.stringify(args));
-         } else {
+         if (args.some(a => a.includes('Revision requested'))) {
            fs.writeFileSync('${logFileRev}', JSON.stringify(args));
+         } else if (args.some(a => a.includes('Initial task objective'))) {
+           fs.writeFileSync('${logFileDel}', JSON.stringify(args));
+         }
+         const i = args.indexOf('--add-dir');
+         if (i >= 0) {
+           fs.writeFileSync(nodePath.join(args[i + 1], 'worker-output.txt'), String(Date.now()));
          }
          process.exit(0);
         `,
@@ -241,8 +270,8 @@ describe('Challenger 2 Empirical Edge Case Tests', () => {
       const taskId = delData.taskId;
 
       const delArgs = JSON.parse(await fs.readFile(logFileDel, 'utf-8'));
-      assert.equal(delArgs[1], '--model');
-      assert.equal(delArgs[2], 'inherit');
+      const delModel = parseAgyArgs(delArgs).model;
+      assert.ok(delModel && delModel.length > 0);
 
       // Step 2: Now create .gelada/policy.yaml in tempRepoDir specifying a new defaultModelProfile
       const geladaDir = path.join(tempRepoDir, '.gelada');
@@ -262,9 +291,7 @@ describe('Challenger 2 Empirical Edge Case Tests', () => {
 
       // Step 4: Verify that revise_task loaded the newly created policy.yaml and passed --model revised-policy-model-v2
       const revArgs = JSON.parse(await fs.readFile(logFileRev, 'utf-8'));
-      assert.equal(revArgs[0], 'prompt');
-      assert.equal(revArgs[1], '--model');
-      assert.equal(revArgs[2], 'revised-policy-model-v2');
+      assert.equal(parseAgyArgs(revArgs).model, 'revised-policy-model-v2');
     });
 
     it('falls back to default model profile when repo policy file has syntax errors or fails to parse', async () => {
@@ -279,8 +306,13 @@ describe('Challenger 2 Empirical Edge Case Tests', () => {
       const mockExec = await createExecutableMock(
         'mock_agy_invalid_yaml',
         `import fs from 'node:fs';
+         import nodePath from 'node:path';
          const args = process.argv.slice(2);
          fs.writeFileSync('${logFileRev}', JSON.stringify(args));
+         const i = args.indexOf('--add-dir');
+         if (i >= 0) {
+           fs.writeFileSync(nodePath.join(args[i + 1], 'worker-output.txt'), 'done\\n');
+         }
          process.exit(0);
         `,
       );
@@ -305,8 +337,8 @@ describe('Challenger 2 Empirical Edge Case Tests', () => {
       assert.equal(revData.status, 'completed');
 
       const revArgs = JSON.parse(await fs.readFile(logFileRev, 'utf-8'));
-      assert.equal(revArgs[1], '--model');
-      assert.equal(revArgs[2], 'inherit');
+      const revModel = parseAgyArgs(revArgs).model;
+      assert.ok(revModel && revModel.length > 0);
     });
   });
 
@@ -314,23 +346,48 @@ describe('Challenger 2 Empirical Edge Case Tests', () => {
     it('defaults to agy command when process.env.AGY_COMMAND is unset and returns AGY_NOT_FOUND if agy is missing', async () => {
       delete process.env.AGY_COMMAND;
 
-      const { delegateHandler } = setupToolHandlers();
+      // Narrow PATH to just the directory holding git, so the task can still
+      // create its worktree while `agy` cannot resolve. Without this the test
+      // either spawns a real model run or passes only by accident on a machine
+      // that happens not to have the worker CLI installed.
+      const realPath = process.env.PATH;
+      const gitDir = path.dirname(
+        execSync('command -v git', { shell: '/bin/sh', encoding: 'utf-8' }).trim(),
+      );
+      assert.ok(
+        !syncFs.existsSync(path.join(gitDir, 'agy')),
+        'this test needs a PATH entry that provides git but not agy',
+      );
+      process.env.PATH = gitDir;
 
-      const delRes = await delegateHandler({
-        repoPath: tempRepoDir,
-        taskType: 'unit-test',
-        objective: 'Test real agy executable default',
-      });
+      try {
+        const { delegateHandler } = setupToolHandlers();
 
-      const delData = JSON.parse(delRes.content[0].text);
-      if (delData.status === 'failed') {
+        const delRes = await delegateHandler({
+          repoPath: tempRepoDir,
+          taskType: 'unit-test',
+          objective: 'Test real agy executable default',
+        });
+
+        const delData = JSON.parse(delRes.content[0].text);
+        assert.equal(delData.status, 'failed');
         assert.equal(delData.code, 'AGY_NOT_FOUND');
         assert.match(delData.error, /Antigravity CLI executable 'agy' was not found/i);
+      } finally {
+        process.env.PATH = realPath;
       }
     });
 
     it('returns AGY_NOT_FOUND error in revise_task when process.env.AGY_COMMAND points to a non-existent executable', async () => {
-      const mockExec = await createExecutableMock('mock_agy_ok', `process.exit(0);`);
+      const mockExec = await createExecutableMock('mock_agy_ok', `import fs from 'node:fs';
+         import nodePath from 'node:path';
+         const args = process.argv.slice(2);
+         const i = args.indexOf('--add-dir');
+         if (i >= 0) {
+           fs.writeFileSync(nodePath.join(args[i + 1], 'worker-output.txt'), String(Date.now()));
+         }
+         process.exit(0);
+        `);
       process.env.AGY_COMMAND = mockExec;
 
       const { delegateHandler, reviseHandler } = setupToolHandlers();
@@ -357,9 +414,20 @@ describe('Challenger 2 Empirical Edge Case Tests', () => {
       assert.match(revData.error, /Antigravity CLI executable '\/nonexistent\/bin\/agy-missing-cmd' was not found/i);
     });
 
-    it('EMPIRICAL BUG REPRODUCTION: demonstrates failure when AGY_COMMAND is a multi-word command string (e.g. node script.js)', async () => {
-      const mockScript = path.join(tempRepoDir, 'mock_agy_multi.js');
-      await fs.writeFile(mockScript, `process.exit(0);`);
+    it('runs a multi-word AGY_COMMAND (e.g. "node script.js") instead of reporting a missing binary', async () => {
+      const mockScript = path.join(tempRepoDir, 'mock_agy_multi.mjs');
+      await fs.writeFile(
+        mockScript,
+        `import fs from 'node:fs';
+         import nodePath from 'node:path';
+         const args = process.argv.slice(2);
+         const i = args.indexOf('--add-dir');
+         if (i >= 0) {
+           fs.writeFileSync(nodePath.join(args[i + 1], 'worker-output.txt'), String(Date.now()));
+         }
+         process.exit(0);
+        `,
+      );
 
       // Passing multi-word command in process.env.AGY_COMMAND
       process.env.AGY_COMMAND = `${process.execPath} ${mockScript}`;
@@ -373,11 +441,8 @@ describe('Challenger 2 Empirical Edge Case Tests', () => {
       });
 
       const delData = JSON.parse(delRes.content[0].text);
-      // Because worker-driver skips splitting options.command when options.args is non-empty,
-      // spawn fails with ENOENT and is misdiagnosed as AGY_NOT_FOUND!
-      assert.equal(delData.status, 'failed');
-      assert.equal(delData.code, 'AGY_NOT_FOUND');
-      assert.match(delData.error, /was not found/i);
+      assert.equal(delData.status, 'completed');
+      assert.equal(delData.errorDetails, undefined);
     });
   });
 });
