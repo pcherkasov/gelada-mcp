@@ -5,6 +5,28 @@ All notable changes to **Gelada MCP** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3] - 2026-08-09
+
+### Added
+
+- **`QUOTA_EXHAUSTED`, a terminal state of its own.** When the worker model runs
+  out of quota, that is neither an authentication problem nor a defect in the
+  task — the same delegation succeeds once the window resets. Reported as a bare
+  `FAILED_WORKER` with "exited with non-zero exit code 1", it invited the two
+  wrong reactions: retry immediately, or rewrite an objective that was never at
+  fault.
+
+  The state carries what actually helps. The worker CLI reports its reset window
+  (`Resets in 2m38s`), and that window is now parsed out and surfaced in
+  `errorDetails.recommendedAction` instead of being left to die in stderr, along
+  with explicit advice to re-delegate the task unchanged.
+
+  Detection covers the phrasing Antigravity emits plus the common forms used by
+  other providers — out of credits, `RESOURCE_EXHAUSTED`, HTTP 429, rate
+  limited, usage limit reached — so this does not have to be rediscovered per
+  worker CLI. A quota failure is deliberately checked before the authentication
+  branch, so it can never be misreported as "run `agy login`".
+
 ## [0.1.2] - 2026-08-09
 
 ### Fixed

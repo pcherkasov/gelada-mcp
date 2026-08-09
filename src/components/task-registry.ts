@@ -147,6 +147,7 @@ export class TaskRegistry {
     else if (
       toState.startsWith('FAILED_') ||
       toState === 'AUTH_REQUIRED' ||
+      toState === 'QUOTA_EXHAUSTED' ||
       toState === 'CANCELLED'
     )
       timestamps.failedAt = nowMs;
