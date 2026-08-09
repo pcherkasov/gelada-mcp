@@ -84,7 +84,9 @@ know *when* delegation pays off.
 
 - [x] Test suite green on CI for every push and pull request (Node 18, 20, 22)
 - [x] Deterministic worker stub so end-to-end tests need no network or model
-- [ ] Publish to npm and tag `v0.1.0`
+- [x] Publish to npm and tag `v0.1.0`
+- [x] Releases cut themselves: merging a version bump to `main` publishes to
+      npm, builds the binaries, and creates the tag and GitHub release
 
 Standalone binaries build via `npm run build:binaries` and have been verified to
 run a full delegation. One known gap: the packaged binary does not carry

@@ -161,7 +161,42 @@ export async function runSmokeTest(options: { timeoutSeconds?: number } = {}): P
       error: (err as Error).message,
     };
   } finally {
-    await fs.rm(repoDir, { recursive: true, force: true }).catch(() => {});
+    await removeTempRepo(repoDir);
+  }
+}
+
+/**
+ * Removes the throwaway repository, retrying briefly.
+ *
+ * A worker process can still be flushing its last writes as the delegation
+ * resolves, and a recursive remove that races a concurrent write fails with
+ * ENOTEMPTY or EBUSY. Swallowing that failure silently leaks a temporary git
+ * repository per smoke run, which is how the leak went unnoticed: the only
+ * symptom was an occasional cleanup assertion.
+ */
+async function removeTempRepo(repoDir: string): Promise<void> {
+  const delaysMs = [0, 25, 100, 250];
+
+  for (let attempt = 0; attempt < delaysMs.length; attempt += 1) {
+    if (delaysMs[attempt] > 0) {
+      await new Promise((resolve) => setTimeout(resolve, delaysMs[attempt]));
+    }
+
+    try {
+      await fs.rm(repoDir, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      const transient = code === 'ENOTEMPTY' || code === 'EBUSY' || code === 'EPERM';
+      if (!transient || attempt === delaysMs.length - 1) {
+        // Never fail the smoke check over cleanup — its verdict is about
+        // delegation — but say so rather than hiding it.
+        process.stderr.write(
+          `warning: could not remove the smoke test repository at ${repoDir}: ${String(error)}\n`,
+        );
+        return;
+      }
+    }
   }
 }
 
