@@ -10,43 +10,42 @@ By delegating verbose, repetitive tasks (unit test generation, boilerplate DTO c
 
 ---
 
-## Architecture & System Flow
+## How it works
 
-`gelada-mcp` connects to host clients via `stdio` transport using the Model Context Protocol standard (`@modelcontextprotocol/sdk`). It enforces a 4-tier security policy, sanitizes worker process environments, manages isolated Git worktrees, and coordinates verification test suites.
+A leader agent sends a task contract. Gelada runs the worker inside a disposable
+git worktree and hands back a patch and a verification verdict — the worker's
+output never enters the leader's context, and nothing is ever written to your
+working tree.
 
+```mermaid
+flowchart TD
+    L["<b>Leader agent</b><br/>Claude Code · Codex · Cursor"]
+    G["<b>Gelada MCP server</b> — local, stdio<br/>validate contract → apply policy → create worktree<br/>→ strip credentials → run worker → verify → collect patch"]
+    W["<b>Worker</b>, in a disposable worktree<br/>Antigravity agy today<br/>more backends planned"]
+    R[("<b>Your repository</b><br/>working tree never written to")]
+
+    L -->|"delegate_task<br/>objective · allowedPaths · verificationCommands"| G
+    G -->|"spawn with a sanitized environment"| W
+    W -->|"file edits + thousands of tokens of chatter"| G
+    G ==>|"patch + verification verdict + changed files<br/><b>the chatter stays behind</b>"| L
+    G -.->|"branches from HEAD, writes only inside .worktrees/"| R
 ```
-+-----------------------------------------------------------------------------------+
-|                        PRIMARY LEADER AGENT (Host Client)                         |
-|                       (Claude Code / OpenAI Codex / Cursor)                       |
-+-----------------------------------------------------------------------------------+
-                                          |
-                                   MCP Stdio Transport
-                                          v
-+-----------------------------------------------------------------------------------+
-|                                 GELADA MCP SERVER                                 |
-|  +-----------------------------------------------------------------------------+  |
-|  | Contract Validator   - Validates schema, input paths & verification commands|  |
-|  | Policy Engine       - Enforces 4-tier security hierarchy & path rules     |  |
-|  | Environment Sanitizer - Removes sensitive credentials (Requirement R1)     |  |
-|  | Worktree Manager     - Allocates isolated git worktrees (.worktrees/)      |  |
-|  | Worker Driver        - Spawns & monitors local worker processes (`agy`)    |  |
-|  | Process Supervisor   - Tracks PIDs, handles timeouts, terminates workers  |  |
-|  | Verification Engine  - Executes automated test suites in worktree           |  |
-|  | Artifact Manager     - Persists logs, diffs, and enforces retention limits |  |
-|  +-----------------------------------------------------------------------------+  |
-+-----------------------------------------------------------------------------------+
-                                          |
-                                 Isolated Process Spawn
-                                          v
-+-----------------------------------------------------------------------------------+
-|                            ISOLATED GIT WORKTREE                                  |
-|                            (.worktrees/task-XXXX)                                 |
-|  +-----------------------------------------------------------------------------+  |
-|  | Worker Process (`agy`) executing task objective                             |  |
-|  | Modifies files in isolated workspace without polluting main working tree      |  |
-|  +-----------------------------------------------------------------------------+  |
-+-----------------------------------------------------------------------------------+
-```
+
+The leader stays the leader: it designs the task, reviews the patch, and decides
+what to keep. Gelada never applies anything.
+
+### What each part is responsible for
+
+| Component | Responsibility |
+|---|---|
+| Contract validator | Rejects a malformed task before any process is spawned |
+| Policy engine | 4-tier precedence with a narrowing invariant — a lower tier may restrict further, never widen |
+| Worktree manager | Allocates and releases the disposable worktree under `.worktrees/` |
+| Environment sanitizer | Strips credentials from the worker process |
+| Worker driver | Builds the worker invocation and spawns it |
+| Process supervisor | Tracks PIDs, enforces timeouts, terminates runaway workers |
+| Verification engine | Runs `verificationCommands` inside the worktree before the leader sees anything |
+| Artifact manager | Persists logs and diffs, enforces retention |
 
 ---
 
