@@ -142,20 +142,67 @@ When merging policies across tiers:
 
 ---
 
-## 4. Vulnerability Reporting Procedures
+## 4. Worker Tool Permissions
+
+This is the most consequential trade-off in the design, so it is stated plainly.
+
+### 4.1 Why the worker runs with permission prompts disabled
+
+The Antigravity CLI cannot ask for tool approval when it runs headlessly, and in
+that mode it also ignores the `permissions.allow` rules in its own
+`settings.json`. Its own error text is explicit about this:
+
+> the … tool(s) required approval that headless mode cannot prompt for, so they
+> were auto-denied. Settings allow-rules do not apply; re-run with
+> `--dangerously-skip-permissions` to auto-approve all tools.
+
+Three approaches were tested against `agy` 1.1.11 and all failed: allow-rules in
+the user's global settings, a workspace-level `.gemini/settings.json`, and
+`--mode accept-edits`. A worker without `--dangerously-skip-permissions`
+therefore cannot write a single file — it exits successfully having done nothing.
+
+Gelada passes the flag by default so that delegation works out of the box, and
+relies on the surrounding isolation rather than on the worker's own prompts.
+
+### 4.2 What contains the worker instead
+
+| Boundary | Effect |
+|---|---|
+| Disposable git worktree | The worker only ever sees a detached checkout under `.worktrees/`. The main working tree is never exposed, and the worktree is thrown away or explicitly discarded. |
+| Environment sanitization | Credentials are stripped from the worker's environment (§2), and known secret values are redacted from its output before a leader agent sees them. |
+| `--sandbox` | Enabled by default via `workerSandbox`, restricting the worker's terminal commands. |
+| Policy engine | Path boundaries, command allow/deny lists and task-type limits are enforced by Gelada before the worker starts (§3). |
+| No-op detection | A worker that exits successfully without changing anything is reported as a failure, so a silently degraded worker cannot be mistaken for a working one. |
+
+### 4.3 Turning it off
+
+Both behaviours are policy flags and follow the same narrowing rule as
+`allowNetwork` — any tier may switch them off, none may switch them back on:
+
+```yaml
+# .gelada/policy.yaml
+workerAutoApprove: false   # worker can no longer modify files
+workerSandbox: true
+```
+
+With `workerAutoApprove: false` the server still runs, but every task will end
+in `FAILED_WORKER` with `WORKER_NO_CHANGES`, because the worker cannot write.
+Choose this only if you intend to use Gelada for read-only or diagnostic flows.
+
+## 5. Vulnerability Reporting Procedures
 
 We take the security of `gelada-mcp` seriously. If you discover a security vulnerability or potential threat in this project, please follow our responsible disclosure guidelines.
 
-### 4.1 Contact Guidelines
+### 5.1 Contact Guidelines
 - **Email**: Report vulnerabilities privately by emailing `security@gelada-mcp.org` (or opening a private security advisory on GitHub).
 - **Do Not Disclose Publicly**: Please do not open public GitHub issues or publicly post details about unpatched security vulnerabilities.
 
-### 4.2 Response Timelines
+### 5.2 Response Timelines
 - **Initial Acknowledgment**: Within **48 hours** of receiving your vulnerability report.
 - **Triage & Assessment**: Preliminary assessment and severity rating provided within **7 days**.
 - **Security Patch Release**: High-severity vulnerabilities patched and released within **14 days**.
 
-### 4.3 Disclosure Policy
+### 5.3 Disclosure Policy
 Once a fix has been developed and verified:
 1. A patch release of `gelada-mcp` will be published to npm.
 2. A security advisory detailing the issue, affected versions, and mitigation steps will be published.

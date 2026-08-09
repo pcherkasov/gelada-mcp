@@ -17,29 +17,43 @@ see [`README.md`](README.md); for the threat model see [`SECURITY.md`](SECURITY.
 | Git worktree isolation | working |
 | Contract validation, artifact retention | working |
 | CLI (`setup`, `doctor`, `config`, `task`, `cleanup`, `models`, `init`) | working |
-| `agy` worker delegation end-to-end | see Milestone 1 |
+| `agy` worker delegation end-to-end | working |
+| Test suite (474 tests) and CI | green |
 | Agent-side discoverability (MCP `instructions`, resources, prompts) | see Milestone 2 |
 | One-command install with smoke verification | see Milestone 3 |
 
-## Milestone 1 — Reliable worker execution
+## Milestone 1 — Reliable worker execution ✅
 
-The worker integration must be correct against the real `agy` CLI, not against
-assumptions about it.
+The worker integration had to be made correct against the real `agy` CLI rather
+than against assumptions about it. Verified end to end: a delegated task now
+produces a real diff in the target repository.
 
-- [ ] Resolve model profiles against the models `agy` actually offers, from one
+- [x] Resolve model profiles against the models `agy` actually offers, from one
       source of truth shared by the server and `gelada models`
-- [ ] Pass the worktree to the worker explicitly — `agy` does not treat the spawn
+- [x] Pass the worktree to the worker explicitly — `agy` does not treat the spawn
       `cwd` as its workspace
-- [ ] Deliver the prompt out-of-band (file/stdin) rather than through `argv`
-- [ ] Explicit, least-privilege write-permission strategy for headless runs;
-      blanket permission bypass stays opt-in
-- [ ] Treat "exit 0 with an empty diff" as a failure, not a success — silent
+- [x] Deliver an oversized prompt through a file rather than through `argv`
+- [x] Explicit write-permission handling for headless runs, configurable per
+      project via `workerAutoApprove` / `workerSandbox`
+- [x] Treat "exit 0 with an empty diff" as a failure, not a success — silent
       no-ops are the worst failure mode for a delegation tool
-- [ ] Separate `allowedPaths` (write boundary) from file preconditions, so that
-      creating a new file is a valid task
-- [ ] Anchor artifacts and worktrees to the target repository, not to the
+- [x] Separate `allowedPaths` (write boundary) from file preconditions
+      (`requiredFiles`), so that creating a new file is a valid task
+- [x] Anchor artifacts and worktrees to the target repository, not to the
       server's working directory
-- [ ] Release worktrees automatically when a task reaches a terminal state
+- [x] Release worktrees that hold no changes; keep the ones that do
+
+### A note on worker permissions
+
+The Antigravity CLI cannot prompt for tool approval in headless mode and ignores
+its own `permissions.allow` rules there, so a worker that is not given
+`--dangerously-skip-permissions` cannot write anything. Gelada therefore passes
+that flag by default and relies on the surrounding isolation for safety: the
+worker only ever sees a disposable git worktree, its environment is stripped of
+credentials, and `--sandbox` restricts terminal commands. Both behaviours are
+policy flags — set `workerAutoApprove: false` in `.gelada/policy.yaml` to turn
+the bypass off, at the cost of the worker being unable to make changes. See
+[`SECURITY.md`](SECURITY.md).
 
 ## Milestone 2 — Discoverability
 

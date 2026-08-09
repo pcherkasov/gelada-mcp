@@ -64,7 +64,7 @@ npm install -g gelada-mcp
 ```
 Alternatively, for local development:
 ```bash
-git clone https://github.com/zugoman/gelada-mcp.git
+git clone https://github.com/pcherkasov/gelada-mcp.git
 cd gelada-mcp
 npm install
 npm run build
@@ -259,6 +259,14 @@ protectedPaths:
 allowNetwork: false           # Block external network access during worker run
 allowShellChaining: false     # Block shell chaining (&&, ;, |) in verification commands
 
+# Worker permissions (see SECURITY.md)
+workerAutoApprove: true       # Let the worker CLI write files without prompting.
+                              # Required for headless operation: the CLI cannot ask
+                              # for approval and ignores its allow-rules in that mode.
+                              # Setting this to false means the worker cannot make
+                              # any changes.
+workerSandbox: true           # Ask the worker CLI to restrict terminal commands
+
 # Task and command permissions
 allowedTaskTypes:
   - "unit-test"
@@ -291,15 +299,48 @@ retention:
 
 ## Available MCP Tools
 
-Gelada MCP exposes five core tools over MCP stdio transport:
+Gelada MCP exposes seven tools over MCP stdio transport:
 
 | MCP Tool | Description | Key Parameters |
 |---|---|---|
-| `delegate_task` | Delegates a routine coding task to a local worker process inside an isolated Git worktree. | `taskType`, `objective`, `repoPath`, `allowedPaths`, `disallowedPaths`, `verificationCommands`, `timeoutSeconds` |
-| `revise_task` | Supplies revision feedback and additional test constraints to an existing task. | `taskId`, `revisionNotes`, `additionalVerificationCommands` |
+| `delegate_task` | Delegates a routine coding task to a local worker inside an isolated Git worktree. Returns as soon as the worker is spawned — see *Task lifecycle* below. | `taskType`, `objective`, `repoPath`, `allowedPaths`, `requiredFiles`, `disallowedPaths`, `verificationCommands`, `modelProfile`, `timeoutSeconds` |
+| `revise_task` | Supplies revision feedback and additional test constraints to an existing task. | `taskId`, `revisionNotes`, `additionalCriteria`, `additionalVerificationCommands` |
 | `inspect_task` | Queries granular state, diffs, changed files, test output, or execution logs of a task. | `taskId`, `mode` (`summary` \| `diff` \| `files` \| `verifications` \| `logs` \| `history`) |
 | `discard_task` | Cancels running worker execution and purges temporary worktrees. | `taskId`, `keepLogs` |
-| `doctor` | Diagnostics check on Node, Git, config permissions, and worker CLI availability. | `verbose`, `checkWorker` |
+| `cancel_task` | Terminates a running worker without discarding task history or its worktree. | `taskId` |
+| `list_workers` | Lists local worker drivers and their statuses. | — |
+| `doctor` | Diagnostics on Node, Git, config permissions, and worker CLI availability. | `verbose`, `checkWorker` |
+
+### Task lifecycle: delegate, then poll
+
+`delegate_task` does not block until the worker finishes — a real task can run
+for minutes, well past an MCP call timeout. It validates the contract, prepares
+the worktree, spawns the worker and returns `status: "running"` with a `taskId`.
+
+The leader agent then polls `inspect_task` until the task reaches a terminal
+state, and reads the patch from `mode: "diff"`:
+
+```jsonc
+// 1. delegate
+{ "taskId": "task-1786264803049-23gtd", "status": "running", "granularStatus": "RUNNING" }
+
+// 2. poll every few seconds
+{ "taskId": "task-...", "status": "completed", "granularStatus": "COMPLETED" }
+```
+
+Contract and policy rejections are returned synchronously with `status:
+"failed"` — those never spawn a worker.
+
+### Worker paths: `allowedPaths` vs `requiredFiles`
+
+- `allowedPaths` is the **write boundary**: the paths the worker may create or
+  modify. Listed files do not have to exist yet, so "create this file" is a
+  valid task.
+- `requiredFiles` is a **precondition**: files that must already be present, or
+  the task fails validation before any worker runs.
+
+A path that appears in both `allowedPaths` and `disallowedPaths` is rejected as
+a contradictory contract.
 
 ---
 

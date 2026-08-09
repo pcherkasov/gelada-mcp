@@ -12,7 +12,7 @@ Thank you for your interest in contributing to **Gelada MCP**! Gelada MCP is an 
 ### Setup Workspace
 1. Fork and clone the repository:
    ```bash
-   git clone https://github.com/zugoman/gelada-mcp.git
+   git clone https://github.com/pcherkasov/gelada-mcp.git
    cd gelada-mcp
    ```
 2. Install dependencies:

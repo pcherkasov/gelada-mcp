@@ -4,7 +4,7 @@ set -e
 # Gelada MCP CLI Installer Script
 # Automatically detects OS and Architecture, downloads the release binary archive, and installs `gelada`.
 
-REPO="${GELADA_REPO:-zugoman/gelada-mcp}"
+REPO="${GELADA_REPO:-pcherkasov/gelada-mcp}"
 TAG="${GELADA_VERSION:-latest}"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 
