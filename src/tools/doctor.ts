@@ -28,10 +28,17 @@ export const doctorInputSchema = z.object({
 export type DoctorInput = z.infer<typeof doctorInputSchema>;
 
 export function registerDoctorTool(mcpServer: McpServer, components: GeladaServerComponents): void {
-  mcpServer.tool(
+  mcpServer.registerTool(
     'doctor',
-    'Run diagnostic checks on Gelada MCP environment, git, and worker CLI.',
-    doctorInputSchema.shape,
+    {
+      title: 'Check that delegation can work',
+      description:
+        'Report whether Gelada can actually run tasks: Node and Git versions, configuration directory permissions, and whether the worker CLI is installed and authenticated.\n' +
+        '\n' +
+        'Run this first when delegation misbehaves — an unauthenticated or missing worker CLI is the most common cause, and it is reported here rather than being discovered one failed task at a time.',
+      inputSchema: doctorInputSchema.shape,
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
     async (args) => {
       const verbose = args.verbose ?? false;
       const checkWorker = args.checkWorker ?? true;

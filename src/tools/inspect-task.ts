@@ -18,10 +18,19 @@ export function registerInspectTaskTool(
   mcpServer: McpServer,
   components: GeladaServerComponents,
 ): void {
-  mcpServer.tool(
+  mcpServer.registerTool(
     'inspect_task',
-    'Inspect state, diff, verification results, or logs of a delegated task.',
-    inspectTaskInputSchema.shape,
+    {
+      title: 'Inspect a delegated task',
+      description:
+        'Read the state and results of a delegated task. This is how you follow a task after delegate_task hands back.\n' +
+        '\n' +
+        'Modes: "summary" for the current state and a changed-file list (poll this every ~5 seconds until granularStatus is terminal); "diff" for the patch itself; "files" for what changed; "verifications" for command results; "logs" for the worker\'s own output, which is what to read when a task fails; "history" for the full state transition trail.\n' +
+        '\n' +
+        'Terminal states are COMPLETED, COMPLETED_WITH_WARNINGS, FAILED_CONTRACT, FAILED_WORKER, FAILED_POLICY, FAILED_VERIFICATION, AUTH_REQUIRED, CANCELLED and DISCARDED. FAILED_WORKER with code WORKER_NO_CHANGES means the worker produced nothing — check the logs rather than retrying blindly.',
+      inputSchema: inspectTaskInputSchema.shape,
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
     async (args) => {
       const mode = args.mode ?? 'summary';
       const task = components.taskRegistry.getTask(args.taskId);

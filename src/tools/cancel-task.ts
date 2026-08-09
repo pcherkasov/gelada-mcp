@@ -12,10 +12,15 @@ export function registerCancelTaskTool(
   mcpServer: McpServer,
   components: GeladaServerComponents,
 ): void {
-  mcpServer.tool(
+  mcpServer.registerTool(
     'cancel_task',
-    'Cancel a running task by terminating its worker process without discarding the task history or worktree.',
-    cancelTaskInputSchema.shape,
+    {
+      title: 'Cancel a running worker',
+      description:
+        'Terminate a running worker while keeping the task\'s history and worktree, so whatever it produced before being stopped stays inspectable. Use discard_task instead when you also want the worktree gone.',
+      inputSchema: cancelTaskInputSchema.shape,
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
     async (args) => {
       const task = components.taskRegistry.getTask(args.taskId);
 

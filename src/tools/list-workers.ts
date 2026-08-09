@@ -5,10 +5,15 @@ export function registerListWorkersTool(
   mcpServer: McpServer,
   _components: GeladaServerComponents,
 ): void {
-  mcpServer.tool(
+  mcpServer.registerTool(
     'list_workers',
-    'List available local worker drivers and their statuses.',
-    {},
+    {
+      title: 'List worker drivers',
+      description:
+        'List the local worker drivers Gelada can dispatch to and their current status.',
+      inputSchema: {},
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
     async () => {
       // Currently, AntigravityDriver is the primary hardcoded driver.
       // Future improvements will dynamically check available binaries via the doctor or driver registry.

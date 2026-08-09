@@ -73,6 +73,14 @@ describe('Requirement R3 Granular Task Lifecycle States Unit Tests', () => {
       tool: (name, description, schema, handler) => {
         registeredTools.set(name, { name, description, schema, handler });
       },
+      registerTool: (name, config, handler) => {
+        registeredTools.set(name, {
+          name,
+          description: config?.description,
+          schema: config?.inputSchema,
+          handler,
+        });
+      },
     };
 
     registerDelegateTaskTool(mockMcpServer, components);

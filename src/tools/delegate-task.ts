@@ -106,10 +106,21 @@ export function registerDelegateTaskTool(
   mcpServer: McpServer,
   components: GeladaServerComponents,
 ): void {
-  mcpServer.tool(
+  mcpServer.registerTool(
     'delegate_task',
-    'Delegate a routine coding task to a local worker agent.',
-    delegateTaskInputSchema.shape,
+    {
+      title: 'Delegate a coding subtask to a local worker',
+      description:
+        'Hand a well-bounded coding subtask to a cheaper local worker agent running in an isolated git worktree, so its verbose output never enters your context and its edits cannot touch the working tree.\n' +
+        '\n' +
+        'WORTH IT FOR: unit tests for existing behaviour, DTOs and schemas, mappers, docstrings, mechanical refactors, localization, formatting — work that is repetitive, precisely specifiable, and ideally checkable by a command. Roughly: if the output would exceed ~1000 tokens, delegating wins. Also worth it when a failed attempt would break the repository, since the worker is confined to a throwaway worktree.\n' +
+        '\n' +
+        'NOT WORTH IT FOR: small edits, files already in your context, anything needing judgement (architecture, API design, tricky debugging), tasks you cannot state acceptance criteria for, or anything needing credentials — the worker\'s environment is stripped of secrets. Delegating a small task is a measured net loss; do those yourself.\n' +
+        '\n' +
+        'RETURNS IMMEDIATELY with status "running" and a taskId. The worker keeps going in the background: poll inspect_task every ~5 seconds until granularStatus is terminal, then read the patch with inspect_task mode "diff". Nothing is applied to your repository — you review the patch and decide. Contract and policy rejections come back synchronously as status "failed" and never spawn a worker.',
+      inputSchema: delegateTaskInputSchema.shape,
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
     async (args) => {
       const repoPath = args.repoPath ?? process.cwd();
       const artifacts = artifactsFor(components, repoPath);
@@ -774,7 +785,27 @@ export function registerDelegateTaskTool(
                   status: 'running',
                   granularStatus: 'RUNNING',
                   stateHistory: components.taskRegistry.getTask(taskId)?.stateHistory,
-                  message: 'Worker spawned in the background. Use inspect_task to check its status.',
+                  model: resolvedModel,
+                  worktreePath: worktree.path,
+                  // Spell out the protocol: an agent that is not told how to
+                  // wait tends to either give up or poll in a tight loop.
+                  nextStep: {
+                    action: 'inspect_task',
+                    arguments: { taskId, mode: 'summary' },
+                    pollEverySeconds: 5,
+                    expectedDurationSeconds: effectiveTimeoutSeconds ?? 300,
+                    until:
+                      'granularStatus is one of COMPLETED, COMPLETED_WITH_WARNINGS, ' +
+                      'FAILED_CONTRACT, FAILED_WORKER, FAILED_POLICY, FAILED_VERIFICATION, ' +
+                      'AUTH_REQUIRED, CANCELLED, DISCARDED',
+                    then:
+                      'On success read the patch with inspect_task mode="diff", review it, and ' +
+                      'apply what you accept — Gelada never writes to your working tree. ' +
+                      'On failure read inspect_task mode="logs".',
+                  },
+                  message:
+                    `Worker running in an isolated worktree. Poll inspect_task with taskId ` +
+                    `"${taskId}" every ~5s until it reaches a terminal state; do other work meanwhile.`,
                 },
                 null,
                 2,

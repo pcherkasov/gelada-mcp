@@ -13,6 +13,8 @@ import { TaskRegistry } from './components/task-registry.js';
 import { ModelRouter } from './components/model-router.js';
 import { registerAllTools } from './tools/index.js';
 import { GELADA_SERVER_INSTRUCTIONS } from './server-instructions.js';
+import { registerInstructionResources } from './resources/index.js';
+import { registerAllPrompts } from './prompts/index.js';
 
 export interface GeladaServerComponents {
   contractValidator: ContractValidator;
@@ -101,6 +103,8 @@ export class GeladaServer {
     };
 
     registerAllTools(this.mcpServer, this.components);
+    registerInstructionResources(this.mcpServer);
+    registerAllPrompts(this.mcpServer);
   }
 
   public getMcpServer(): McpServer {

@@ -196,7 +196,21 @@ gelada config set worker.timeoutSeconds 600  # Set configuration value
 gelada config reset                     # Reset configuration to defaults
 ```
 
-### 5. `gelada task`
+### 5. `gelada init`
+Scaffolds a project policy and tells your coding agent that delegation is
+available.
+```bash
+gelada init [preset]        # typescript (default), java, python, go
+
+Options:
+  -f, --force               Overwrite an existing .gelada/policy.yaml
+  --no-agent-guide          Do not touch CLAUDE.md / AGENTS.md
+```
+It writes `.gelada/policy.yaml`, then adds a short delegation policy to the
+repository's `CLAUDE.md` and/or `AGENTS.md` between marker comments. Re-running
+it replaces that block rather than appending a second copy.
+
+### 6. `gelada task`
 Inspect and manage task lifecycles directly from the command line.
 ```bash
 # Inspect task details by mode (summary, diff, files, verifications, logs, history)
@@ -209,7 +223,7 @@ gelada task patch <taskId> --file patch-spec.json
 gelada task discard <taskId> [--keep-logs]
 ```
 
-### 6. `gelada cleanup`
+### 7. `gelada cleanup`
 Enforces artifact retention policies and cleans up old task runs, log bundles, and diffs.
 ```bash
 gelada cleanup [options]
@@ -223,6 +237,20 @@ Options:
   --max-disk-size <size>    Override maximum total artifact disk space (e.g. "100MB", "1GB")
   --json                    Output cleanup summary as JSON
 ```
+
+### MCP resources and prompts
+
+Beyond tools, the server exposes the leader-agent guidance in
+`docs/instructions/` as MCP **resources** (`gelada://instructions/…`), so an
+agent can pull the detail on demand rather than carrying it in every session,
+and ships **prompts** for the delegation shapes that work well:
+`delegate_unit_tests`, `delegate_docstrings`, `delegate_mechanical_refactor`
+and `review_delegated_patch`.
+
+The `initialize` response also carries server `instructions` — a short account
+of when delegation pays off and when it does not. MCP clients inject this into
+the model's context, which is what makes an agent reach for the server without
+being told to.
 
 ---
 

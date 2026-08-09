@@ -13,10 +13,17 @@ export function registerDiscardTaskTool(
   mcpServer: McpServer,
   components: GeladaServerComponents,
 ): void {
-  mcpServer.tool(
+  mcpServer.registerTool(
     'discard_task',
-    'Discard a task, cancel any running execution, and clean up temporary worktrees.',
-    discardTaskInputSchema.shape,
+    {
+      title: 'Discard a task and free its worktree',
+      description:
+        'Stop a task if it is still running and delete its worktree. Call this once you have taken what you need from the patch — worktrees are otherwise kept so their changes stay inspectable.\n' +
+        '\n' +
+        'The patch and logs remain available through inspect_task when keepLogs is set. This does not touch your working tree.',
+      inputSchema: discardTaskInputSchema.shape,
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    },
     async (args) => {
       const keepLogs = args.keepLogs ?? false;
       const task = components.taskRegistry.getTask(args.taskId);

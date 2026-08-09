@@ -29,10 +29,17 @@ export function registerReviseTaskTool(
   mcpServer: McpServer,
   components: GeladaServerComponents,
 ): void {
-  mcpServer.tool(
+  mcpServer.registerTool(
     'revise_task',
-    'Revise an existing delegated task with feedback and revision notes.',
-    reviseTaskInputSchema.shape,
+    {
+      title: 'Send revision feedback to a delegated task',
+      description:
+        'Re-run an existing task in its own worktree with your feedback, keeping the work already done. Much cheaper than delegating from scratch when the result is close but wrong.\n' +
+        '\n' +
+        'Be specific about what to change: the worker cannot ask questions. Use additionalVerificationCommands to tighten the check that failed.',
+      inputSchema: reviseTaskInputSchema.shape,
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
     async (args) => {
       // 1. Contract Validation
       const valResult = components.contractValidator.validateReviseTaskPayload(args);

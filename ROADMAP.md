@@ -19,7 +19,7 @@ see [`README.md`](README.md); for the threat model see [`SECURITY.md`](SECURITY.
 | CLI (`setup`, `doctor`, `config`, `task`, `cleanup`, `models`, `init`) | working |
 | `agy` worker delegation end-to-end | working |
 | Test suite (474 tests) and CI | green |
-| Agent-side discoverability (MCP `instructions`, resources, prompts) | see Milestone 2 |
+| Agent-side discoverability (MCP `instructions`, resources, prompts) | working |
 | One-command install with smoke verification | see Milestone 3 |
 
 ## Milestone 1 — Reliable worker execution ✅
@@ -55,18 +55,18 @@ policy flags — set `workerAutoApprove: false` in `.gelada/policy.yaml` to turn
 the bypass off, at the cost of the worker being unable to make changes. See
 [`SECURITY.md`](SECURITY.md).
 
-## Milestone 2 — Discoverability
+## Milestone 2 — Discoverability ✅
 
 A capable server that no agent chooses is not useful. The leader agent needs to
 know *when* delegation pays off.
 
-- [ ] Ship server-level `instructions` describing when to delegate, when not to,
+- [x] Ship server-level `instructions` describing when to delegate, when not to,
       and how to poll
-- [ ] Tool descriptions that state the trade-off, with proper annotations
-- [ ] Expose the guidance in `docs/instructions/` as MCP resources, and typical
+- [x] Tool descriptions that state the trade-off, with proper annotations
+- [x] Expose the guidance in `docs/instructions/` as MCP resources, and typical
       delegation scenarios as MCP prompts
-- [ ] State the async polling contract explicitly in the `delegate_task` response
-- [ ] `gelada init` writes a short delegation policy into the target repo's
+- [x] State the async polling contract explicitly in the `delegate_task` response
+- [x] `gelada init` writes a short delegation policy into the target repo's
       `CLAUDE.md` / `AGENTS.md`
 
 ## Milestone 3 — Frictionless install

@@ -93,6 +93,14 @@ describe('Milestone 12 - Challenger 1 Empirical Stress Test Suite (R3 Granular T
       tool: (name, description, schema, handler) => {
         registeredTools.set(name, { name, description, schema, handler });
       },
+      registerTool: (name, config, handler) => {
+        registeredTools.set(name, {
+          name,
+          description: config?.description,
+          schema: config?.inputSchema,
+          handler,
+        });
+      },
     };
 
     registerDelegateTaskTool(mockMcpServer, components);
