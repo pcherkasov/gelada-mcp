@@ -194,8 +194,14 @@ Choose this only if you intend to use Gelada for read-only or diagnostic flows.
 We take the security of `gelada-mcp` seriously. If you discover a security vulnerability or potential threat in this project, please follow our responsible disclosure guidelines.
 
 ### 5.1 Contact Guidelines
-- **Email**: Report vulnerabilities privately by emailing `security@gelada-mcp.org` (or opening a private security advisory on GitHub).
-- **Do Not Disclose Publicly**: Please do not open public GitHub issues or publicly post details about unpatched security vulnerabilities.
+- **Preferred**: Open a private security advisory at
+  [github.com/pcherkasov/gelada-mcp/security/advisories/new](https://github.com/pcherkasov/gelada-mcp/security/advisories/new).
+  The report stays private to you and the maintainer, and it is the channel that
+  produces a published advisory and a CVE if one is warranted.
+- **Fallback**: If you cannot use GitHub, email the maintainer at
+  `pavel.chrksv@gmail.com` with `gelada-mcp security` in the subject line.
+- **Do Not Disclose Publicly**: Please do not open public GitHub issues or pull
+  requests, or publicly post details, about unpatched security vulnerabilities.
 
 ### 5.2 Response Timelines
 - **Initial Acknowledgment**: Within **48 hours** of receiving your vulnerability report.
