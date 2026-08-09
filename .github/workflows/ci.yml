@@ -116,7 +116,17 @@ jobs:
     name: release
     needs: release-gate
     if: needs.release-gate.outputs.publish == 'true'
-    runs-on: ubuntu-latest
+    # macOS, not Linux, and the whole job rather than a split build. pkg
+    # ad-hoc signs its darwin output only when it can run `codesign`, which
+    # exists on a macOS runner and not on ubuntu. Built on Linux, the darwin
+    # binaries ship unsigned, and macOS kills unsigned arm64 executables on
+    # sight — v0.1.0 and v0.1.1 both exit 137 on Apple Silicon. Signing them
+    # afterwards is not an option either: the signature is appended to the
+    # Mach-O and corrupts pkg's appended snapshot. pkg cross-builds the linux
+    # and windows targets from here just as it did the other way round, and
+    # standard runners are free for public repositories, so a single job stays
+    # simplest — no artifact hand-off between runners.
+    runs-on: macos-latest
     permissions:
       contents: write # create the tag and the GitHub release
       id-token: write # mint the OIDC token npm trusted publishing needs
@@ -154,6 +164,22 @@ jobs:
       - name: Build standalone binaries
         run: npm run build:binaries
 
+      # The runner is Apple Silicon, so the arm64 binary can simply be run.
+      # This is the check that would have caught both binary defects shipped so
+      # far: an unsigned binary dies with SIGKILL here, and one built without
+      # the version injected reports the wrong number.
+      - name: Verify the macOS binary is signed and runs
+        run: |
+          codesign -dv dist/binaries/gelada-darwin-arm64
+          codesign -dv dist/binaries/gelada-darwin-x64
+
+          ACTUAL=$(./dist/binaries/gelada-darwin-arm64 --version)
+          echo "binary reports: ${ACTUAL}"
+          if [ "$ACTUAL" != "$VERSION" ]; then
+            echo "binary reports '${ACTUAL}' but this release is '${VERSION}'" >&2
+            exit 1
+          fi
+
       - name: Package archives and compute checksums
         run: |
           mkdir -p release-assets
@@ -166,7 +192,8 @@ jobs:
           (cd dist/binaries && zip "../../release-assets/gelada-${TAG}-win-x64.zip" gelada-win-x64.exe)
 
           cd release-assets
-          sha256sum gelada-${TAG}-* > checksums.txt
+          # shasum, not sha256sum: the runner is macOS now.
+          shasum -a 256 gelada-${TAG}-* > checksums.txt
           cat checksums.txt
 
       - name: Create the tag and the GitHub release

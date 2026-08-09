@@ -5,6 +5,27 @@ All notable changes to **Gelada MCP** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-08-09
+
+### Fixed
+
+- **The macOS binaries could not run on Apple Silicon.** They were built on a
+  Linux runner, where `pkg` cannot ad-hoc sign its darwin output, and macOS
+  kills unsigned arm64 executables outright — `gelada-darwin-arm64 --version`
+  exited 137 with no output on both 0.1.0 and 0.1.1. Signing them after the fact
+  does not help: the signature is appended to the Mach-O and corrupts the
+  packaged snapshot. Release binaries are now built on macOS, where they are
+  signed as part of the build.
+
+  If you downloaded a macOS binary from 0.1.0 or 0.1.1, replace it — those
+  archives cannot be repaired locally. The npm package was never affected.
+
+### Added
+
+- The release now runs the binary it just built and checks both its signature
+  and the version it reports, so a binary that cannot start fails the release
+  instead of being published.
+
 ## [0.1.1] - 2026-08-09
 
 ### Fixed

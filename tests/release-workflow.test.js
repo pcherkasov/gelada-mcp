@@ -99,6 +99,23 @@ test('CI/CD pipeline definition', async (t) => {
       'the release job must not re-run the suite that gated it',
     );
 
+    // Not interchangeable with ubuntu: pkg ad-hoc signs its darwin output only
+    // where `codesign` exists, and macOS SIGKILLs unsigned arm64 executables.
+    // v0.1.0 and v0.1.1 were both built on Linux and both exit 137 on Apple
+    // Silicon.
+    assert.equal(job['runs-on'], 'macos-latest', 'the release must be built where darwin binaries can be signed');
+
+    assert.ok(stepsStr.includes('codesign -dv'), 'must verify the darwin binaries carry a signature');
+    assert.ok(
+      stepsStr.includes('gelada-darwin-arm64 --version'),
+      'must run the built arm64 binary — the runner is Apple Silicon, so an unsigned or mis-versioned binary fails here rather than after release',
+    );
+    assert.ok(stepsStr.includes('shasum -a 256'), 'checksums must be computed with shasum');
+    assert.ok(
+      !/sha256sum gelada-/.test(stepsStr),
+      'sha256sum is not present on macOS; the checksum step must call shasum -a 256',
+    );
+
     assert.ok(stepsStr.includes('npm run build:binaries'), 'must build the standalone binaries');
     for (const target of ['darwin-x64', 'darwin-arm64', 'linux-x64', 'linux-arm64']) {
       assert.ok(stepsStr.includes(`gelada-\${TAG}-${target}.tar.gz`), `must package the ${target} archive`);
