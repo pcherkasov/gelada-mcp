@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import assert from 'node:assert/strict';
+import { PACKAGE_VERSION } from './helpers/package-version.js';
 
 console.log('=== STARTING M2 STDIO LAUNCH EMPIRICAL TESTS ===');
 
@@ -38,28 +39,41 @@ async function testServerInitialization() {
 
     child.stdout.on('data', (chunk) => {
       stdoutData += chunk.toString();
-      try {
-        const lines = stdoutData.split('\n').filter((l) => l.trim().length > 0);
-        for (const line of lines) {
-          const msg = JSON.parse(line);
-          if (msg.id === 1 && msg.result) {
-            // Received initialize response
-            assert.ok(
-              connectedLogged,
-              'Stderr should contain connection diagnostic log before/upon init',
-            );
-            assert.equal(msg.jsonrpc, '2.0');
-            assert.ok(msg.result.serverInfo);
-            assert.equal(msg.result.serverInfo.name, 'gelada-mcp');
-            assert.equal(msg.result.serverInfo.version, '0.1.0');
-            pass('Stdio server launch & JSON-RPC initialize request/response');
-            child.kill();
-            resolve();
-            return;
-          }
+
+      for (const line of stdoutData.split('\n').filter((l) => l.trim().length > 0)) {
+        let msg;
+        try {
+          msg = JSON.parse(line);
+        } catch {
+          // A partial JSON frame: wait for the rest of the line. Only parsing
+          // is tolerated here — an assertion below must never be swallowed.
+          continue;
         }
-      } catch (err) {
-        // May receive partial JSON frame, wait for complete line
+
+        if (msg.id !== 1 || !msg.result) {
+          continue;
+        }
+
+        try {
+          assert.ok(
+            connectedLogged,
+            'Stderr should contain connection diagnostic log before/upon init',
+          );
+          assert.equal(msg.jsonrpc, '2.0');
+          assert.ok(msg.result.serverInfo);
+          assert.equal(msg.result.serverInfo.name, 'gelada-mcp');
+          assert.equal(msg.result.serverInfo.version, PACKAGE_VERSION);
+          clearTimeout(timer);
+          pass('Stdio server launch & JSON-RPC initialize request/response');
+          child.kill();
+          resolve();
+        } catch (err) {
+          clearTimeout(timer);
+          child.kill();
+          fail('Stdio server launch & JSON-RPC initialize request/response', err);
+          reject(err);
+        }
+        return;
       }
     });
 
@@ -83,16 +97,20 @@ async function testServerInitialization() {
 
     child.stdin.write(initPayload);
 
-    setTimeout(() => {
-      if (!connectedLogged && stdoutData.length === 0) {
-        child.kill();
-        fail(
-          'Stdio server launch',
-          new Error(`Timeout waiting for server output. Stderr: ${stderrData}`),
-        );
-        reject(new Error('Timeout'));
-      }
-    }, 4000);
+    // Unconditional: the promise above settles as soon as the initialize
+    // response arrives, so anything still pending here is a genuine stall. The
+    // previous guard only fired when nothing at all had been received, which
+    // meant a server that answered but answered wrongly hung forever instead of
+    // failing — in CI that burns the whole job timeout rather than reporting.
+    const timer = setTimeout(() => {
+      child.kill();
+      fail(
+        'Stdio server launch',
+        new Error(`Timeout waiting for a valid initialize response. Stderr: ${stderrData}`),
+      );
+      reject(new Error('Timeout'));
+    }, 10000);
+    timer.unref?.();
   });
 }
 

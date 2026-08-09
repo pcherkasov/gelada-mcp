@@ -49,3 +49,37 @@ export function packageRoot(): string {
 export function packagePath(...segments: string[]): string {
   return path.join(packageRoot(), ...segments);
 }
+
+// Injected by esbuild when building the standalone binary, which carries no
+// package.json to read (see scripts/build-binary.js). Absent in the npm build,
+// where the file itself is the source of truth.
+declare const __GELADA_BUILD_VERSION__: string | undefined;
+
+let cachedVersion: string | undefined;
+
+/**
+ * The version this build reports, read from package.json.
+ *
+ * Never write the version as a literal in source. Releases are cut by merging a
+ * version bump, so a second copy silently drifts on every release: the package
+ * says one thing and `--version`, the MCP handshake and the update check say
+ * another.
+ */
+export function packageVersion(): string {
+  if (cachedVersion) return cachedVersion;
+
+  try {
+    const raw = fs.readFileSync(packagePath('package.json'), 'utf8');
+    const parsed = JSON.parse(raw) as { version?: string };
+    if (parsed.version) {
+      cachedVersion = parsed.version;
+      return cachedVersion;
+    }
+  } catch {
+    // Packaged binary, or an unreadable package root — fall through.
+  }
+
+  cachedVersion =
+    typeof __GELADA_BUILD_VERSION__ === 'string' ? __GELADA_BUILD_VERSION__ : '0.0.0-unknown';
+  return cachedVersion;
+}

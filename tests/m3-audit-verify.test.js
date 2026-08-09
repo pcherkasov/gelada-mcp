@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { PACKAGE_VERSION } from './helpers/package-version.js';
 import { spawn } from 'node:child_process';
 import { createGeladaServer } from '../dist/server.js';
 import * as fsPromises from 'node:fs/promises';
@@ -117,7 +118,7 @@ async function testJsonRpcTools() {
           assert.ok(doctorRes.result, 'Result should exist for doctor call');
           const doctorContent = JSON.parse(doctorRes.result.content[0].text);
           assert.equal(doctorContent.status, 'ok');
-          assert.equal(doctorContent.geladaVersion, '0.1.0');
+          assert.equal(doctorContent.geladaVersion, PACKAGE_VERSION);
 
           pass('End-to-End JSON-RPC tools/list and tools/call over stdio');
           child.kill();

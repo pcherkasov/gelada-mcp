@@ -28,6 +28,11 @@ export async function bundle() {
     // rather than letting esbuild emit a broken reference.
     define: {
       'import.meta.url': '__gelada_module_url',
+      // The binary carries no package.json, so bake the version in at bundle
+      // time rather than letting it fall back to an unknown placeholder.
+      __GELADA_BUILD_VERSION__: JSON.stringify(
+        JSON.parse(fs.readFileSync(path.join(rootDir, 'package.json'), 'utf8')).version,
+      ),
     },
     banner: {
       js: "const __gelada_module_url = require('node:url').pathToFileURL(__filename).href;",

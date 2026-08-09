@@ -6,6 +6,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 
 import { getConfigDir, getDataDir, getLogDir } from '../utils/paths.js';
+import { packageVersion } from '../../utils/package-paths.js';
 import { loadWorkerModelCatalog } from '../../components/model-catalog.js';
 
 const execFileAsync = promisify(execFile);
@@ -68,7 +69,7 @@ export function getSystemInfo() {
     nodeVersion: process.version,
     npmVersion,
     agyVersion,
-    geladaVersion: process.env.npm_package_version || '0.1.0',
+    geladaVersion: packageVersion(),
     timestamp: new Date().toISOString(),
   };
 }
@@ -218,7 +219,7 @@ export async function runDiagnostics(options: { checkWorker?: boolean } = {}): P
   return {
     timestamp: new Date().toISOString(),
     overallStatus,
-    geladaVersion: process.env.npm_package_version || '0.1.0',
+    geladaVersion: packageVersion(),
     nodeVersion: process.version,
     platform: os.platform(),
     arch: os.arch(),

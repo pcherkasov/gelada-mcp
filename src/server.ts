@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
+import { packageVersion } from './utils/package-paths.js';
 import { ContractValidator } from './components/contract-validator.js';
 import { PolicyEngine } from './components/policy-engine.js';
 import { RepositoryInspector } from './components/repository-inspector.js';
@@ -57,7 +58,7 @@ export class GeladaServer {
     this.mcpServer = new McpServer(
       {
         name: 'gelada-mcp',
-        version: '0.1.0',
+        version: packageVersion(),
       },
       {
         // Surfaced in the initialize response and injected into the leader

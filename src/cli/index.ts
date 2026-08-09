@@ -1,4 +1,5 @@
 import { Command } from 'commander';
+import { packageVersion } from '../utils/package-paths.js';
 import { registerSetupCommand } from './commands/setup.js';
 import { registerDoctorCommand } from './commands/doctor.js';
 import { registerConfigCommand } from './commands/config.js';
@@ -19,7 +20,7 @@ export function createCliProgram(): Command {
     .description(
       'Local open-source MCP server delegating routine coding tasks to local worker agents',
     )
-    .version('0.1.0');
+    .version(packageVersion());
 
   registerSetupCommand(program);
   registerDoctorCommand(program);

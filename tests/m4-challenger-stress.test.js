@@ -1,5 +1,6 @@
 import test, { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { PACKAGE_VERSION } from './helpers/package-version.js';
 import { spawn } from 'node:child_process';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
@@ -87,8 +88,19 @@ describe('Challenger M4-4: Stdio Protocol E2E Stress & Channel Purity Verificati
 
       proc.stdin.write(initRequest);
 
-      // Wait a moment for response
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      // Wait for the server to actually announce itself rather than for a fixed
+      // 300ms. That flat sleep was a coin flip on a slow runner: startup on CI
+      // Node 18 and 20 regularly exceeds it, and the assertion below then read
+      // an empty stderr and blamed the server for saying nothing.
+      const deadline = Date.now() + 15000;
+      while (
+        Date.now() < deadline &&
+        !stderrLines.join('').includes('Gelada MCP server connected and listening via stdio.')
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      // Give the initialize response a moment to land on stdout as well.
+      await new Promise((resolve) => setTimeout(resolve, 100));
 
       proc.kill();
 
@@ -318,7 +330,7 @@ describe('Challenger M4-4: Stdio Protocol E2E Stress & Channel Purity Verificati
         });
         const data = JSON.parse(res.content[0].text);
         assert.equal(data.status, 'ok');
-        assert.equal(data.geladaVersion, '0.1.0');
+        assert.equal(data.geladaVersion, PACKAGE_VERSION);
         assert.equal(data.gitAvailable, true);
         assert.equal(data.workerAvailable, true);
         assert.equal(data.verbose, false);
