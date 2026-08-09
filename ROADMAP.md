@@ -86,8 +86,11 @@ know *when* delegation pays off.
 - [x] Deterministic worker stub so end-to-end tests need no network or model
 - [ ] Publish to npm and tag `v0.1.0`
 
-Standalone binaries build via `npm run build:binaries`, but that channel has not
-been exercised end to end yet — `npm` is the supported way to install 0.1.0.
+Standalone binaries build via `npm run build:binaries` and have been verified to
+run a full delegation. One known gap: the packaged binary does not carry
+`docs/instructions`, so the MCP *resources* return a placeholder there. The
+server `instructions` and every tool work normally — only the on-demand
+documents are missing. `npm` remains the recommended install.
 
 ## Beyond 0.1
 
