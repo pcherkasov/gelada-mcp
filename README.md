@@ -20,9 +20,9 @@ working tree.
 ```mermaid
 flowchart TD
     L["<b>Leader agent</b><br/>Claude Code · Codex · Cursor"]
-    G["<b>Gelada MCP server</b> — local, stdio<br/>validate contract → apply policy → create worktree<br/>→ strip credentials → run worker → verify → collect patch"]
+    G["<b>Gelada MCP server</b> — local, stdio<br/>contract → policy → worktree → sanitized env<br/>→ worker → verification → patch"]
     W["<b>Worker</b>, in a disposable worktree<br/>Antigravity agy today<br/>more backends planned"]
-    R[("<b>Your repository</b><br/>working tree never written to")]
+    R[("<b>Your repository</b><br/>never written to")]
 
     L -->|"delegate_task<br/>objective · allowedPaths · verificationCommands"| G
     G -->|"spawn with a sanitized environment"| W
