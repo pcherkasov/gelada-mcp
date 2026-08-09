@@ -37,7 +37,9 @@ describe('Challenger 2 Empirical Edge Case Tests', () => {
   });
 
   async function createExecutableMock(filename, code) {
-    const scriptPath = path.join(tempRepoDir, filename);
+    // .mjs, not extensionless: Node 18 does not sniff module syntax, so an
+    // extensionless script using `import` fails to parse there.
+    const scriptPath = path.join(tempRepoDir, `${filename}.mjs`);
     const scriptContent = `#!/usr/bin/env node\n${code}`;
     await fs.writeFile(scriptPath, scriptContent, { mode: 0o755 });
     return scriptPath;

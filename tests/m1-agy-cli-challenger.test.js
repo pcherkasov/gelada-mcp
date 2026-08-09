@@ -155,7 +155,7 @@ describe('Empirical Stress Testing: agy CLI Integration & Error Handling', () =>
     });
 
     it('1.5 Missing binary ENOENT path in revise_task', async () => {
-      const mockScriptSuccess = path.join(tempRepoDir, 'mock_agy_ok.js');
+      const mockScriptSuccess = path.join(tempRepoDir, 'mock_agy_ok.mjs');
       await createExecutableMockScript(mockScriptSuccess, `import fs from 'node:fs';
          import path from 'node:path';
          const argv = process.argv.slice(2);
@@ -255,7 +255,7 @@ describe('Empirical Stress Testing: agy CLI Integration & Error Handling', () =>
 
     describe('2.4 End-to-End Tool Execution with Auth Error Formats', () => {
       it('should return AUTH_REQUIRED error code when worker stderr contains auth error format', async () => {
-        const mockScriptAuthFail = path.join(tempRepoDir, 'mock_auth_fail.js');
+        const mockScriptAuthFail = path.join(tempRepoDir, 'mock_auth_fail.mjs');
         await createExecutableMockScript(
           mockScriptAuthFail,
           `console.error("Critical: User is unauthenticated. Run agy login."); process.exit(1);`,
@@ -278,7 +278,7 @@ describe('Empirical Stress Testing: agy CLI Integration & Error Handling', () =>
       });
 
       it('should return AUTH_REQUIRED error when auth keyword appears on STDOUT instead of STDERR', async () => {
-        const mockScriptAuthStdout = path.join(tempRepoDir, 'mock_auth_stdout.js');
+        const mockScriptAuthStdout = path.join(tempRepoDir, 'mock_auth_stdout.mjs');
         await createExecutableMockScript(
           mockScriptAuthStdout,
           `console.log("Authentication required. Please run agy login."); process.exit(1);`,
@@ -319,7 +319,7 @@ describe('Empirical Stress Testing: agy CLI Integration & Error Handling', () =>
       );
 
       const logFile = path.join(tempRepoDir, 'args_explicit.json');
-      const mockScript = path.join(tempRepoDir, 'mock_agy_log.js');
+      const mockScript = path.join(tempRepoDir, 'mock_agy_log.mjs');
       await createExecutableMockScript(
         mockScript,
         `import fs from 'node:fs';
@@ -366,7 +366,7 @@ describe('Empirical Stress Testing: agy CLI Integration & Error Handling', () =>
       );
 
       const logFile = path.join(tempRepoDir, 'args_project.json');
-      const mockScript = path.join(tempRepoDir, 'mock_agy_log.js');
+      const mockScript = path.join(tempRepoDir, 'mock_agy_log.mjs');
       await createExecutableMockScript(
         mockScript,
         `import fs from 'node:fs';
@@ -405,7 +405,7 @@ describe('Empirical Stress Testing: agy CLI Integration & Error Handling', () =>
       );
 
       const logFile = path.join(tempRepoDir, 'args_global.json');
-      const mockScript = path.join(tempRepoDir, 'mock_agy_log.js');
+      const mockScript = path.join(tempRepoDir, 'mock_agy_log.mjs');
       await createExecutableMockScript(
         mockScript,
         `import fs from 'node:fs';
@@ -438,7 +438,7 @@ describe('Empirical Stress Testing: agy CLI Integration & Error Handling', () =>
 
     it('3.4 Omitted modelProfile with no project or global policy falls back to Hard Limits "default"', async () => {
       const logFile = path.join(tempRepoDir, 'args_hardlimit.json');
-      const mockScript = path.join(tempRepoDir, 'mock_agy_log.js');
+      const mockScript = path.join(tempRepoDir, 'mock_agy_log.mjs');
       await createExecutableMockScript(
         mockScript,
         `import fs from 'node:fs';
@@ -487,7 +487,7 @@ describe('Empirical Stress Testing: agy CLI Integration & Error Handling', () =>
     });
 
     it('3.6 Edge Case: Empty string modelProfile in delegate_task is rejected by contract validator', async () => {
-      const mockScript = path.join(tempRepoDir, 'mock_agy_log.js');
+      const mockScript = path.join(tempRepoDir, 'mock_agy_log.mjs');
       await createExecutableMockScript(
         mockScript,
         `import fs from 'node:fs';
@@ -528,7 +528,7 @@ describe('Empirical Stress Testing: agy CLI Integration & Error Handling', () =>
       );
 
       const logFile = path.join(tempRepoDir, 'args_revise.json');
-      const mockScript = path.join(tempRepoDir, 'mock_agy_log.js');
+      const mockScript = path.join(tempRepoDir, 'mock_agy_log.mjs');
       await createExecutableMockScript(
         mockScript,
         `import fs from 'node:fs';
@@ -569,7 +569,7 @@ describe('Empirical Stress Testing: agy CLI Integration & Error Handling', () =>
     });
 
     it('3.8 AGY_COMMAND with arguments capability check', async () => {
-      const mockScript = path.join(tempRepoDir, 'mock_space.js');
+      const mockScript = path.join(tempRepoDir, 'mock_space.mjs');
       await createExecutableMockScript(mockScript, `import fs from 'node:fs';
          import path from 'node:path';
          const argv = process.argv.slice(2);

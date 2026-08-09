@@ -12,6 +12,7 @@ import { ArtifactManager } from './components/artifact-manager.js';
 import { TaskRegistry } from './components/task-registry.js';
 import { ModelRouter } from './components/model-router.js';
 import { registerAllTools } from './tools/index.js';
+import { GELADA_SERVER_INSTRUCTIONS } from './server-instructions.js';
 
 export interface GeladaServerComponents {
   contractValidator: ContractValidator;
@@ -51,10 +52,18 @@ export class GeladaServer {
   public readonly components: GeladaServerComponents;
 
   constructor(components?: Partial<GeladaServerComponents>) {
-    this.mcpServer = new McpServer({
-      name: 'gelada-mcp',
-      version: '0.1.0',
-    });
+    this.mcpServer = new McpServer(
+      {
+        name: 'gelada-mcp',
+        version: '0.1.0',
+      },
+      {
+        // Surfaced in the initialize response and injected into the leader
+        // agent's context by the client. Without it the agent sees seven tool
+        // names and no reason to prefer any of them over editing files itself.
+        instructions: GELADA_SERVER_INSTRUCTIONS,
+      },
+    );
 
     const processSupervisor = components?.processSupervisor ?? new ProcessSupervisor();
     const workerDriver =

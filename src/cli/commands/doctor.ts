@@ -232,6 +232,22 @@ export interface DoctorCommandOptions {
   json?: boolean;
   verbose?: boolean;
   worker?: boolean;
+  strict?: boolean;
+}
+
+/**
+ * Exit code policy: a diagnostic that ran successfully exits 0 even when it has
+ * bad news, so callers can read the report. Only Gelada's own prerequisites
+ * (node, git, config) make the command fail. A missing worker CLI is a real
+ * problem but an expected one on a fresh machine or in CI, so it is reported
+ * rather than thrown. Use --strict to fail on any non-passing check.
+ */
+export function doctorExitCode(report: DiagnosticReport, strict = false): number {
+  if (strict) {
+    return report.checks.some((c) => c.status !== 'pass') ? 1 : 0;
+  }
+  const ownPrerequisites = report.checks.filter((c) => c.category !== 'worker');
+  return ownPrerequisites.some((c) => c.status === 'fail') ? 1 : 0;
 }
 
 export function registerDoctorCommand(program: Command): void {
@@ -241,12 +257,13 @@ export function registerDoctorCommand(program: Command): void {
     .option('--json', 'Output the diagnostic report as JSON')
     .option('-v, --verbose', 'Include per-check details')
     .option('--no-worker', 'Skip worker CLI checks')
+    .option('--strict', 'Exit non-zero if any check does not pass')
     .action(async (options: DoctorCommandOptions) => {
       const report = await runDiagnostics({ checkWorker: options.worker });
 
       if (options.json) {
         console.log(JSON.stringify(report, null, 2));
-        process.exitCode = report.overallStatus === 'error' ? 1 : 0;
+        process.exitCode = doctorExitCode(report, options.strict);
         return;
       }
 
@@ -270,6 +287,6 @@ export function registerDoctorCommand(program: Command): void {
       }
       console.log(`\nGelada ${report.geladaVersion} · ${path.basename(process.execPath)} ${report.nodeVersion}`);
 
-      process.exitCode = report.overallStatus === 'error' ? 1 : 0;
+      process.exitCode = doctorExitCode(report, options.strict);
     });
 }
