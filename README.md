@@ -79,9 +79,11 @@ works**:
 ```bash
 gelada setup
 ```
-It exits non-zero if that final check fails, so a green setup means delegation
-actually works rather than merely that files were written. Add `--yes` for
-unattended runs and `--no-smoke` to skip the check.
+If the check fails, setup says so plainly and names the likely cause rather than
+reporting success. Its exit code reflects its own work — a machine without the
+worker CLI installed yet is an unfinished install, not a failed one — so use
+`--strict` when you want a non-zero exit on a not-ready environment. Add `--yes`
+for unattended runs and `--no-smoke` to skip the check.
 
 Run the check on its own at any time:
 ```bash
@@ -179,6 +181,9 @@ Options:
   --uninstall               Remove gelada-mcp from detected client configurations
   --remove                  Alias for --uninstall
   --client <name>           Target specific client (claude, codex, or all)
+  --no-smoke                Skip the end-to-end delegation check
+  -y, --yes                 Accept the worker permission default without prompting
+  --strict                  Exit non-zero if the environment is not ready
 ```
 
 ### 2. `gelada doctor`

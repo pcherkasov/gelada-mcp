@@ -78,6 +78,7 @@ export interface SetupOptions {
   homeDir?: string;
   smoke?: boolean;
   yes?: boolean;
+  strict?: boolean;
 }
 
 /**
@@ -481,6 +482,7 @@ export function registerSetupCommand(program: Command): void {
     .option('--client <name>', 'Target specific client configuration (claude, codex, or all)')
     .option('--no-smoke', 'Skip the end-to-end delegation check')
     .option('-y, --yes', 'Accept the worker permission default without prompting')
+    .option('--strict', 'Exit non-zero if the environment is not ready to delegate')
     .action(async (options: SetupOptions) => {
       try {
         const result = await runSetup(options);
@@ -531,7 +533,7 @@ export function registerSetupCommand(program: Command): void {
             if (check.remediation) console.log(`          → ${check.remediation}`);
           }
           console.log('\nFix the above, then run "gelada smoke" to confirm.');
-          process.exitCode = 1;
+          if (options.strict) process.exitCode = 1;
           return;
         }
 
@@ -559,7 +561,8 @@ export function registerSetupCommand(program: Command): void {
           console.error(`[fail] Delegation check failed: ${smoke.error ?? 'unknown error'}`);
           if (smoke.remediation) console.error(`       → ${smoke.remediation}`);
           console.error('       Configuration is in place, but tasks will not work yet.');
-          process.exitCode = 1;
+          console.error('       Re-run "gelada smoke" after fixing it — that command gates on the result.');
+          if (options.strict) process.exitCode = 1;
         }
       } catch (err: unknown) {
         const errorMsg = err instanceof Error ? err.message : String(err);
