@@ -1,7 +1,6 @@
 import { Command } from 'commander';
 import { Updater } from '../utils/updater.js';
-import * as fs from 'fs';
-import * as path from 'path';
+import { packageVersion } from '../../utils/package-paths.js';
 
 export interface UpdateCommandOptions {
   json?: boolean;
@@ -15,17 +14,10 @@ export function registerUpdateCommand(program: Command): void {
     .option('--json', 'Output update information in JSON format')
     .option('--install', 'Install the latest update if available')
     .action(async (options: UpdateCommandOptions) => {
-      // Find current version from package.json
-      let currentVersion = '0.1.0';
-      try {
-        const pkgPath = path.resolve(__dirname, '../../../package.json');
-        const pkgData = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-        if (pkgData.version) {
-          currentVersion = pkgData.version;
-        }
-      } catch (e) {
-        // ignore
-      }
+      // This used to resolve package.json through `__dirname`, which does not
+      // exist in ESM — so the lookup always threw and the update check silently
+      // compared against a hard-coded 0.1.0 no matter what was installed.
+      const currentVersion = packageVersion();
 
       const updater = new Updater(currentVersion);
       

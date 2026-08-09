@@ -1,5 +1,6 @@
 import test, { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { PACKAGE_VERSION } from './helpers/package-version.js';
 import { spawn } from 'node:child_process';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
@@ -318,7 +319,7 @@ describe('Challenger M4-4: Stdio Protocol E2E Stress & Channel Purity Verificati
         });
         const data = JSON.parse(res.content[0].text);
         assert.equal(data.status, 'ok');
-        assert.equal(data.geladaVersion, '0.1.0');
+        assert.equal(data.geladaVersion, PACKAGE_VERSION);
         assert.equal(data.gitAvailable, true);
         assert.equal(data.workerAvailable, true);
         assert.equal(data.verbose, false);

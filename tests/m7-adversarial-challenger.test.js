@@ -5,6 +5,7 @@ import { promisify } from 'node:util';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { PACKAGE_VERSION } from './helpers/package-version.js';
 
 const execFileAsync = promisify(execFile);
 const GELADA_BIN = path.resolve(process.cwd(), 'bin/gelada.js');
@@ -24,7 +25,7 @@ describe('M7 Empirical Challenger CLI Framework & Subcommand Suite', () => {
 
     it('1.2 Version flag outputs configured version string', async () => {
       const { stdout, stderr } = await execFileAsync(process.execPath, [GELADA_BIN, '--version']);
-      assert.equal(stdout.trim(), '0.1.0');
+      assert.equal(stdout.trim(), PACKAGE_VERSION);
       assert.equal(stderr, '');
     });
 

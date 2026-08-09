@@ -5,6 +5,39 @@ All notable changes to **Gelada MCP** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-08-09
+
+### Fixed
+
+- **Security reports had nowhere to land.** `SECURITY.md` gave
+  `security@gelada-mcp.org` as the contact, and that domain does not exist
+  (NXDOMAIN). Private vulnerability reporting was also disabled on the
+  repository, so a researcher had no working channel at all. Reports now go to a
+  private GitHub security advisory, with a maintainer address as fallback.
+- **Gelada reported the wrong version of itself.** The version was written as a
+  literal in five places in the source, so `gelada --version`, the MCP
+  `initialize` handshake and `doctor --json` would all have kept reporting
+  `0.1.0` forever. `gelada update` was worse: it resolved `package.json` through
+  `__dirname`, which does not exist in ESM, so the lookup always failed and the
+  update check silently compared against a hard-coded `0.1.0` regardless of what
+  was installed. All of them now read the version from `package.json`, and the
+  standalone binary has it baked in at build time.
+- **`gelada smoke` could leak a temporary git repository per run.** Cleanup of
+  the throwaway repository discarded every error, so a removal that lost a race
+  with the worker's last writes left the repository in the system temp directory
+  and reported nothing. It now retries briefly and warns instead of hiding.
+
+### Changed
+
+- `@modelcontextprotocol/sdk` moved to 1.30.0, clearing 5 advisories (2 high)
+  reaching the tree through `hono`, `fast-uri` and `ip-address`. Installs of
+  0.1.0 were never exposed — the declared range is `^1.5.0` and no lockfile
+  ships to consumers — so this only pins what the project itself builds against.
+- Releases are now cut by the pipeline: merging a version bump to `main`
+  publishes to npm with provenance, builds the standalone binaries and creates
+  the tag and GitHub release. Publishing authenticates with a short-lived OIDC
+  token instead of a stored npm token.
+
 ## [0.1.0] - 2026-08-09
 
 First public release.
