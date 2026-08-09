@@ -1,0 +1,22 @@
+# Dependencies & build output
+node_modules/
+dist/
+coverage/
+*.tgz
+
+# Private author material — never publish (see .private/README.md)
+.private/
+
+# Gelada runtime state
+.gelada/
+.worktrees/
+gelada-debug-bundle-*.zip
+
+# Editors & OS
+.idea/
+.vscode/
+.DS_Store
+.id
+
+# Logs
+*.log
