@@ -62,6 +62,7 @@ When inspecting task state via `inspect_task` or handling tool responses, Leader
 │ Terminal Failure States:                                                    │
 │   • FAILED_CONTRACT            • FAILED_WORKER         • FAILED_POLICY      │
 │   • FAILED_VERIFICATION        • AUTH_REQUIRED         • CANCELLED          │
+│   • QUOTA_EXHAUSTED                                                         │
 │   • DISCARDED                                                               │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -85,6 +86,7 @@ When inspecting task state via `inspect_task` or handling tool responses, Leader
 | `FAILED_POLICY` | Failure | Policy violation (tried editing forbidden paths or banned commands). Revise allowed paths. |
 | `FAILED_VERIFICATION` | Failure | Worker executed, but test command failed. Use `revise_task` to send failure logs back to worker. |
 | `AUTH_REQUIRED` | Failure | Worker CLI requires auth (e.g. `agy login`). Alert human user to authenticate. |
+| `QUOTA_EXHAUSTED` | Failure | Worker model quota ran out; the task was never attempted. Wait for the reset window in `errorDetails.recommendedAction`, then re-delegate unchanged. Do not treat as a task defect. |
 | `CANCELLED` | Terminal | Task cancelled during execution via signal or system shutdown. Re-delegate if required. |
 | `DISCARDED` | Terminal | Task discarded via `discard_task`. Worktree purged. No further action needed. |
 

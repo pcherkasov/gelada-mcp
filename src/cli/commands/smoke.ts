@@ -29,6 +29,7 @@ const TERMINAL = new Set([
   'FAILED_POLICY',
   'FAILED_VERIFICATION',
   'AUTH_REQUIRED',
+  'QUOTA_EXHAUSTED',
   'CANCELLED',
   'DISCARDED',
 ]);
@@ -36,6 +37,12 @@ const TERMINAL = new Set([
 function remediationFor(state?: string, code?: string): string | undefined {
   if (state === 'AUTH_REQUIRED') {
     return 'Run the Antigravity CLI once in a terminal and sign in, then re-run "gelada smoke".';
+  }
+  if (state === 'QUOTA_EXHAUSTED') {
+    return (
+      'The worker model is out of quota, so delegation was never attempted. Nothing is ' +
+      'misconfigured — wait for the quota window to reset and re-run "gelada smoke".'
+    );
   }
   if (code === 'AGY_NOT_FOUND') {
     return 'Install the Antigravity CLI and put it on PATH, or point AGY_COMMAND at it.';

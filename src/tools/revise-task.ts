@@ -2,13 +2,13 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { GeladaServerComponents } from '../server.js';
 import { buildWorkerInvocation, buildWorkerPrompt } from '../components/worker-invocation.js';
-import { isAuthError } from './delegate-task.js';
+import { isAuthError, isQuotaError, quotaErrorDetails } from './delegate-task.js';
 import {
   GranularTaskState,
   TaskErrorDetails,
   mapGranularToLegacyStatus,
 } from '../types/task.js';
-export { isAuthError };
+export { isAuthError, isQuotaError };
 
 export const reviseTaskInputSchema = z.object({
   taskId: z.string().describe('Identifier of the task to revise'),
@@ -223,6 +223,36 @@ export function registerReviseTaskTool(
         }
 
         const combinedOutput = `${workerResult.stderr}\n${workerResult.stdout}`;
+
+        // Before the auth branch, for the same reason as in delegate_task: a
+        // quota message is the more specific diagnosis.
+        if (workerResult.exitCode !== 0 && isQuotaError(combinedOutput)) {
+          const errorDetails = quotaErrorDetails(combinedOutput);
+          components.taskRegistry.transitionTask(
+            args.taskId,
+            'QUOTA_EXHAUSTED',
+            errorDetails.message,
+            errorDetails,
+          );
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify(
+                  {
+                    taskId: args.taskId,
+                    status: 'failed',
+                    granularStatus: 'QUOTA_EXHAUSTED',
+                    errorDetails,
+                  },
+                  null,
+                  2,
+                ),
+              },
+            ],
+          };
+        }
+
         if (workerResult.exitCode !== 0 && isAuthError(combinedOutput)) {
           const errorDetails: TaskErrorDetails = {
             code: 'AUTH_REQUIRED',
@@ -443,6 +473,10 @@ export function registerReviseTaskTool(
           errorMessage = `Antigravity CLI executable '${process.env.AGY_COMMAND || 'agy'}' was not found. Please ensure agy is installed and in your PATH.`;
           errorCode = 'AGY_NOT_FOUND';
           granularState = 'FAILED_WORKER';
+        } else if (isQuotaError(errorMessage)) {
+          errorMessage = quotaErrorDetails(errorMessage).message;
+          errorCode = 'QUOTA_EXHAUSTED';
+          granularState = 'QUOTA_EXHAUSTED';
         } else if (isAuthError(errorMessage)) {
           errorMessage =
             'Antigravity CLI authentication required. Please run "agy login" in your terminal to authenticate.';

@@ -27,7 +27,7 @@ export function registerInspectTaskTool(
         '\n' +
         'Modes: "summary" for the current state and a changed-file list (poll this every ~5 seconds until granularStatus is terminal); "diff" for the patch itself; "files" for what changed; "verifications" for command results; "logs" for the worker\'s own output, which is what to read when a task fails; "history" for the full state transition trail.\n' +
         '\n' +
-        'Terminal states are COMPLETED, COMPLETED_WITH_WARNINGS, FAILED_CONTRACT, FAILED_WORKER, FAILED_POLICY, FAILED_VERIFICATION, AUTH_REQUIRED, CANCELLED and DISCARDED. FAILED_WORKER with code WORKER_NO_CHANGES means the worker produced nothing — check the logs rather than retrying blindly.',
+        'Terminal states are COMPLETED, COMPLETED_WITH_WARNINGS, FAILED_CONTRACT, FAILED_WORKER, FAILED_POLICY, FAILED_VERIFICATION, AUTH_REQUIRED, QUOTA_EXHAUSTED, CANCELLED and DISCARDED. FAILED_WORKER with code WORKER_NO_CHANGES means the worker produced nothing — check the logs rather than retrying blindly. QUOTA_EXHAUSTED means the worker model ran out of quota before doing any work: nothing is wrong with the task, so do not rewrite it — errorDetails.recommendedAction carries the reset window, and the same delegation succeeds unchanged once it passes.',
       inputSchema: inspectTaskInputSchema.shape,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },

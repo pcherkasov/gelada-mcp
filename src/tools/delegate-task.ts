@@ -64,6 +64,77 @@ export function isAuthError(text: string): boolean {
 }
 
 /**
+ * Recognises a worker that stopped because its model quota ran out.
+ *
+ * This is not an authentication problem and not a defect in the task: the same
+ * delegation succeeds once the window resets. It is worth separating because
+ * the natural reaction to a bare "worker exited 1" — retry, or rewrite the
+ * objective — is wrong in both directions here.
+ *
+ * The first two patterns are the ones Antigravity actually emits, observed on a
+ * real exhausted account and confirmed against strings in the agy binary:
+ *
+ *   Error: Individual quota reached. Please upgrade your subscription to
+ *   increase your limits. Resets in 2m38s.
+ *
+ * The rest cover the common phrasings of other providers so this does not have
+ * to be rediscovered per worker CLI.
+ */
+export function isQuotaError(text: string): boolean {
+  if (!text) return false;
+  const patterns = [
+    /\bquota reached\b/i,
+    /\bout of credits\b/i,
+    /\bquota (?:exceeded|exhausted)\b/i,
+    /\bresource[_ ]exhausted\b/i,
+    /\binsufficient credits\b/i,
+    /\b(?:usage|rate) limit(?:s)? (?:reached|exceeded)\b/i,
+    /\brate[- ]?limited\b/i,
+    /\btoo many requests\b/i,
+    /\bhttp 429\b/i,
+    /\b429 too many requests\b/i,
+    /\bupgrade your subscription\b/i,
+  ];
+  return patterns.some((p) => p.test(text));
+}
+
+/**
+ * Pulls the reset window out of a quota message, e.g. "2m38s" or "10 minutes".
+ *
+ * This is the single most actionable fact in the failure — it turns "something
+ * went wrong" into "wait this long, then retry unchanged" — and it was being
+ * dropped on the floor along with the rest of stderr.
+ */
+export function parseQuotaReset(text: string): string | undefined {
+  if (!text) return undefined;
+  const match =
+    // Longest alternatives first: regex alternation is ordered, so a bare `m`
+    // listed before `minutes?` would clip "10 minutes" down to "10 m".
+    /\bresets?\s+in\s+([0-9]+\s*(?:days?|hours?|minutes?|seconds?|d|h|m|s)(?:\s*[0-9]+\s*(?:hours?|minutes?|seconds?|h|m|s))*)/i.exec(
+      text,
+    );
+  return match ? match[1].trim() : undefined;
+}
+
+/** The error payload for a worker that ran out of quota. */
+export function quotaErrorDetails(combinedOutput: string): TaskErrorDetails {
+  const resetIn = parseQuotaReset(combinedOutput);
+  return {
+    code: 'QUOTA_EXHAUSTED',
+    message: resetIn
+      ? `The worker model's quota is exhausted. It resets in ${resetIn}.`
+      : "The worker model's quota is exhausted.",
+    category: 'quota',
+    stage: 'QUOTA_EXHAUSTED',
+    possibleCause:
+      'The worker CLI reached the usage limit of its plan. The task itself was never attempted.',
+    recommendedAction: resetIn
+      ? `Wait ${resetIn} and delegate the same task again unchanged, or switch to a cheaper model profile. Do not rewrite the objective — nothing is wrong with it.`
+      : 'Wait for the quota window to reset and delegate the same task again unchanged, or switch to a cheaper model profile. Do not rewrite the objective — nothing is wrong with it.',
+  };
+}
+
+/**
  * Converts a path glob into a matcher. Supports the `**`, `*` and `?` forms that
  * appear in task contracts; anything else is compared literally.
  */
@@ -545,6 +616,36 @@ export function registerDelegateTaskTool(
             }
 
             const combinedOutput = `${workerResult.stderr}\n${workerResult.stdout}`;
+
+            // Checked before the auth branch: a quota message is the more
+            // specific diagnosis, and misreporting it as an auth failure would
+            // send the leader agent to re-run `agy login` for no reason.
+            if (workerResult.exitCode !== 0 && isQuotaError(combinedOutput)) {
+              const errorDetails = quotaErrorDetails(combinedOutput);
+              components.taskRegistry.transitionTask(
+                taskId,
+                'QUOTA_EXHAUSTED',
+                errorDetails.message,
+                errorDetails,
+              );
+              await artifacts
+                .saveTaskBundle(taskId, {
+                  status: 'failed',
+                  granularStatus: 'QUOTA_EXHAUSTED',
+                  stateHistory: components.taskRegistry.getTask(taskId)?.stateHistory,
+                  errorDetails,
+                  timestamps: components.taskRegistry.getTask(taskId)?.timestamps,
+                  workerStdout: workerResult.stdout,
+                  workerStderr: workerResult.stderr,
+                  taskType: args.taskType,
+                  objective: args.objective,
+                  repoPath,
+                })
+                .catch(() => {});
+
+              return;
+            }
+
             if (workerResult.exitCode !== 0 && isAuthError(combinedOutput)) {
               const errorDetails: TaskErrorDetails = {
                 code: 'AUTH_REQUIRED',
@@ -742,6 +843,11 @@ export function registerDelegateTaskTool(
               errorMessage = `Antigravity CLI executable '${process.env.AGY_COMMAND || 'agy'}' was not found. Please ensure agy is installed and in your PATH.`;
               errorCode = 'AGY_NOT_FOUND';
               granularState = 'FAILED_WORKER';
+            } else if (isQuotaError(errorMessage)) {
+              const quota = quotaErrorDetails(errorMessage);
+              errorMessage = quota.message;
+              errorCode = 'QUOTA_EXHAUSTED';
+              granularState = 'QUOTA_EXHAUSTED';
             } else if (isAuthError(errorMessage)) {
               errorMessage =
                 'Antigravity CLI authentication required. Please run "agy login" in your terminal to authenticate.';
@@ -797,7 +903,7 @@ export function registerDelegateTaskTool(
                     until:
                       'granularStatus is one of COMPLETED, COMPLETED_WITH_WARNINGS, ' +
                       'FAILED_CONTRACT, FAILED_WORKER, FAILED_POLICY, FAILED_VERIFICATION, ' +
-                      'AUTH_REQUIRED, CANCELLED, DISCARDED',
+                      'AUTH_REQUIRED, QUOTA_EXHAUSTED, CANCELLED, DISCARDED',
                     then:
                       'On success read the patch with inspect_task mode="diff", review it, and ' +
                       'apply what you accept — Gelada never writes to your working tree. ' +
@@ -830,6 +936,10 @@ export function registerDelegateTaskTool(
           errorMessage = `Antigravity CLI executable '${process.env.AGY_COMMAND || 'agy'}' was not found. Please ensure agy is installed and in your PATH.`;
           errorCode = 'AGY_NOT_FOUND';
           granularState = 'FAILED_WORKER';
+        } else if (isQuotaError(errorMessage)) {
+          errorMessage = quotaErrorDetails(errorMessage).message;
+          errorCode = 'QUOTA_EXHAUSTED';
+          granularState = 'QUOTA_EXHAUSTED';
         } else if (isAuthError(errorMessage)) {
           errorMessage =
             'Antigravity CLI authentication required. Please run "agy login" in your terminal to authenticate.';

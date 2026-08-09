@@ -14,6 +14,12 @@ export type GranularTaskState =
   | 'FAILED_POLICY'
   | 'FAILED_VERIFICATION'
   | 'AUTH_REQUIRED'
+  // Distinct from AUTH_REQUIRED and from FAILED_WORKER on purpose. Nothing is
+  // wrong with the task or the credentials: the worker's model quota ran out,
+  // and the same task will succeed once the window resets. A leader agent needs
+  // to branch on that — retrying immediately fails again, and rewriting the task
+  // fixes nothing.
+  | 'QUOTA_EXHAUSTED'
   | 'CANCELLED'
   | 'DISCARDED';
 
@@ -72,6 +78,7 @@ export function mapGranularToLegacyStatus(granularStatus: GranularTaskState): Le
     case 'FAILED_POLICY':
     case 'FAILED_VERIFICATION':
     case 'AUTH_REQUIRED':
+    case 'QUOTA_EXHAUSTED':
     case 'CANCELLED':
       return 'failed';
     case 'DISCARDED':

@@ -421,6 +421,7 @@ Gelada MCP tracks task execution through 17 explicit lifecycle states, providing
                 v
   +-------------------------------+
   |            RUNNING            | ----(Auth Error)----> [ AUTH_REQUIRED ]
+  |            RUNNING            | ----(Quota Out)-----> [ QUOTA_EXHAUSTED ]
   +-------------------------------+ ----(Timeout/Kill)--> [ CANCELLED     ]
           |               |             ----(Policy Fail)--> [ FAILED_POLICY ]
    (Pass) v               v (Crash/Code)
@@ -464,6 +465,7 @@ Gelada MCP tracks task execution through 17 explicit lifecycle states, providing
 | `FAILED_POLICY` | Task execution blocked by Policy Engine security rule or path restriction. | `failed` |
 | `FAILED_VERIFICATION` | Automated verification commands failed (tests broke). | `failed` |
 | `AUTH_REQUIRED` | Worker agent requires authentication (e.g., `agy login` required). | `failed` |
+| `QUOTA_EXHAUSTED` | Worker model quota ran out before any work was done. The task is fine; retry unchanged once the reset window in `errorDetails.recommendedAction` has passed. | `failed` |
 | `CANCELLED` | Task execution timed out or was cancelled during runtime. | `failed` |
 | `DISCARDED` | Task worktree and runtime resources discarded via `discard_task`. | `discarded` |
 

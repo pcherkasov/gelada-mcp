@@ -109,6 +109,7 @@ Gelada MCP tracks task execution across 17 granular task states grouped into act
 | | `FAILED_POLICY` | Task violated path boundaries or executed forbidden shell commands. |
 | | `FAILED_VERIFICATION` | Worker code generated, but `verificationCommands` failed test execution. |
 | | `AUTH_REQUIRED` | Worker CLI requires authentication (e.g. `agy login`). Leader must alert user. |
+| | `QUOTA_EXHAUSTED` | Worker model ran out of quota before doing any work. Nothing is wrong with the task — do not rewrite it. `errorDetails.recommendedAction` carries the reset window; re-delegate unchanged after it passes, or drop to a cheaper model profile. |
 | | `CANCELLED` | Task aborted by user or system signal during execution. |
 | | `DISCARDED` | Task discarded by Leader via `discard_task` and worktree cleaned up. |
 
