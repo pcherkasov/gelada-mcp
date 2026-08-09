@@ -18,7 +18,7 @@ see [`README.md`](README.md); for the threat model see [`SECURITY.md`](SECURITY.
 | Contract validation, artifact retention | working |
 | CLI (`setup`, `doctor`, `config`, `task`, `cleanup`, `models`, `init`) | working |
 | `agy` worker delegation end-to-end | working |
-| Test suite (474 tests) and CI | green |
+| Test suite (504 tests) and CI | green |
 | Agent-side discoverability (MCP `instructions`, resources, prompts) | working |
 | One-command install with smoke verification | working |
 
@@ -87,6 +87,8 @@ know *when* delegation pays off.
 - [x] Publish to npm and tag `v0.1.0`
 - [x] Releases cut themselves: merging a version bump to `main` publishes to
       npm, builds the binaries, and creates the tag and GitHub release
+- [x] Release binaries are built on macOS and the job runs the one it just built:
+      binaries produced on Linux ship unsigned and macOS kills them on sight
 
 Standalone binaries build via `npm run build:binaries` and have been verified to
 run a full delegation. One known gap: the packaged binary does not carry
@@ -94,14 +96,96 @@ run a full delegation. One known gap: the packaged binary does not carry
 server `instructions` and every tool work normally — only the on-demand
 documents are missing. `npm` remains the recommended install.
 
-## Beyond 0.1
+## Milestone 5 — Any worker, not just Antigravity
 
-- Additional worker drivers behind the same contract (the worker driver is an
-  interface, not a hard dependency on `agy`)
-- Richer verification strategies (coverage deltas, lint gates)
-- Optional container sandboxing for untrusted task types
+Today `agy` is not an implementation detail, it is a dependency. Model discovery
+shells out to `agy models`, and `buildWorkerInvocation` writes `agy`'s exact
+argv — `--add-dir`, `--print-timeout`, `--sandbox`,
+`--dangerously-skip-permissions`. A second backend cannot be added without
+extracting that.
+
+- [ ] A real `WorkerDriver` interface: build the invocation, list models, deliver
+      an oversized prompt, and classify a failure. `AntigravityDriver` becomes
+      the first implementation of it rather than the only shape.
+- [ ] Adapters for the obvious neighbours: Claude Code (`claude -p`), the Codex
+      CLI, Gemini CLI, Aider.
+- [ ] Local models as first-class workers — Ollama or llama.cpp hosting Hermes,
+      Qwen Coder, DeepSeek. This is the case where delegation is unambiguously
+      worth it: the marginal token costs nothing, so the break-even that governs
+      every other decision here disappears.
+- [ ] Per-backend failure classification. `QUOTA_EXHAUSTED` and `AUTH_REQUIRED`
+      are diagnoses, and every CLI words them differently; the patterns belong to
+      the adapter, not to `delegate_task`.
+- [ ] A capability probe per backend. Antigravity taught this the hard way: a
+      worker that cannot write files headlessly is useless, and says nothing
+      about it. No backend ships until `gelada smoke` proves it produces a real
+      diff.
+
+## Milestone 6 — Routing that knows who is asking
+
+The MCP handshake carries `clientInfo`, and Gelada currently ignores it. Once it
+is read, the server knows which agent is delegating — and that changes what a
+good route is.
+
+- [ ] Record the leader from `initialize`.
+- [ ] **Anti-affinity by default: never delegate to the same engine that is
+      asking.** Codex handing work to Codex buys nothing — no cost saving, no
+      second opinion, and the same blind spots. If Codex is the leader, the
+      worker should be Claude Code, or a local model, or Gemini.
+- [ ] Route by task type and tier, not by a single configured default. Docstrings
+      and DTOs go to the cheapest worker that can write files; a mechanical
+      refactor across 40 files goes to the one with the largest context.
+- [ ] Failover on `QUOTA_EXHAUSTED` — try the next configured worker instead of
+      failing the task, which is only possible once there is more than one.
+- [ ] Deferred retry. The worker already tells us when the window resets; a task
+      could wait it out instead of handing the leader a failure.
+
+## Milestone 7 — Proof, not claims
+
+`COMPLETED` currently means "the worker wrote something". Delegating exhaustive
+test generation and getting back a suite where one test asserts the wrong thing
+is a real, observed outcome — and without `verificationCommands` there was
+nothing to catch it.
+
+- [ ] **Generated tests must be shown to exercise the code.** Run the new tests
+      against the unmodified source: a test that passes with and without the
+      behaviour it claims to pin is not a test. This is the single highest-value
+      check for the workload Gelada is best at.
+- [ ] Coverage-delta and lint gates alongside command verification.
+- [ ] Diff-shape assertions: nothing deleted that was not meant to be, no
+      existing test weakened to make a suite pass.
+- [ ] Make `verificationCommands` the default rather than an option — warn
+      loudly when a task is delegated without any way to check it.
+
+## Milestone 8 — Throughput
+
+- [ ] Parallel fan-out: one call, N independent subtasks, N worktrees, one
+      combined report. "Write tests for these twelve modules" is the shape this
+      tool exists for, and it is currently twelve round trips.
+- [ ] An `apply_task` tool so the leader can land an accepted patch on a branch
+      without shelling out.
+- [ ] Budgets in the policy tiers: concurrent workers, worker-minutes per hour,
+      tasks per repository.
+
+## Milestone 9 — Operability
+
+- [ ] `gelada stats`: worker minutes spent, tasks accepted versus discarded,
+      failures by cause. The README claims delegation pays off past a threshold —
+      that claim should be measurable on your own history, not taken on faith.
+- [ ] Optional container sandboxing for untrusted task types.
+- [ ] Structured task-event export for anyone who wants to keep the history.
+
+## Not planned
+
+- **A hosted service.** Gelada runs locally, sees your repository and your
+  credentials, and that is the point.
+- **Being the leader agent.** Gelada delegates; it does not plan, review or
+  decide. That boundary is what makes it reviewable.
+- **Applying patches automatically.** The leader reviews and accepts. A tool that
+  writes to your working tree unattended is a different, riskier product.
 
 ## Contributing
 
 Issues and pull requests are welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md).
-The most useful contributions right now are on Milestone 1.
+The most useful contributions right now are on Milestone 5 — a second worker
+backend is what turns the driver from a dependency into an interface.
