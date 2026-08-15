@@ -75,7 +75,7 @@ export interface SetupOptions {
   uninstall?: boolean;
   remove?: boolean;
   installClients?: boolean;
-  client?: 'claude' | 'codex' | 'all' | string;
+  client?: 'claude' | 'codex' | 'antigravity' | 'all' | string;
   homeDir?: string;
   smoke?: boolean;
   yes?: boolean;
@@ -149,6 +149,7 @@ export function updateClientConfigs(options: SetupOptions = {}): {
     if (clientFilter === 'all') return true;
     if (clientFilter === 'claude') return client.clientType.startsWith('claude');
     if (clientFilter === 'codex') return client.clientType === 'codex';
+    if (clientFilter === 'antigravity') return client.clientType === 'antigravity';
     return client.clientType.includes(clientFilter);
   });
 
@@ -377,7 +378,10 @@ export function registerSetupCommand(program: Command): void {
     .option('-q, --quiet', 'Suppress stdout messages')
     .option('--uninstall', 'Remove gelada-mcp server from detected client configuration files')
     .option('--remove', 'Alias for --uninstall')
-    .option('--client <name>', 'Target specific client configuration (claude, codex, or all)')
+    .option(
+      '--client <name>',
+      'Target specific client configuration (claude, codex, antigravity, or all)',
+    )
     .option('--no-smoke', 'Skip the end-to-end delegation check')
     .option('-y, --yes', 'Accept the worker permission default without prompting')
     .option('--strict', 'Exit non-zero if the environment is not ready to delegate')

@@ -75,7 +75,11 @@ describe('Milestone 11 Challenger 2 — Setup & Client Integration Empirical Str
         paths.some((p) => p.includes(path.join('.codex', 'config.json'))),
         'macOS Codex path missing',
       );
-      assert.equal(clients.length, 7, 'Expected 7 candidates on macOS');
+      assert.ok(
+        paths.some((p) => p.includes(path.join('.gemini', 'config', 'mcp_config.json'))),
+        'macOS Antigravity path missing',
+      );
+      assert.equal(clients.length, 8, 'Expected 8 candidates on macOS');
     });
 
     it('detects correct nested candidate paths for Windows (win32)', () => {
@@ -96,7 +100,11 @@ describe('Milestone 11 Challenger 2 — Setup & Client Integration Empirical Str
         paths.some((p) => p.includes(path.join(mockAppData, 'Codex', 'config.json'))),
         'Windows AppData Codex path missing',
       );
-      assert.equal(clients.length, 8, 'Expected 8 candidates on Windows');
+      assert.ok(
+        paths.some((p) => p.includes(path.join('.gemini', 'config', 'mcp_config.json'))),
+        'Windows Antigravity path missing',
+      );
+      assert.equal(clients.length, 9, 'Expected 9 candidates on Windows');
     });
 
     it('detects correct nested candidate paths for Linux (linux)', () => {
@@ -111,7 +119,11 @@ describe('Milestone 11 Challenger 2 — Setup & Client Integration Empirical Str
         ),
         'Linux Claude Desktop path missing',
       );
-      assert.equal(clients.length, 7, 'Expected 7 candidates on Linux');
+      assert.ok(
+        paths.some((p) => p.includes(path.join('.gemini', 'config', 'mcp_config.json'))),
+        'Linux Antigravity path missing',
+      );
+      assert.equal(clients.length, 8, 'Expected 8 candidates on Linux');
     });
 
     it('handles deeply nested custom --config-dir during runSetup', async () => {

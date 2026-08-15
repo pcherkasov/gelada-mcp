@@ -5,7 +5,7 @@ import os from 'node:os';
 import { packagePath } from '../../utils/package-paths.js';
 
 export interface ClientDetectionResult {
-  clientType: 'claude-desktop' | 'claude-code' | 'codex';
+  clientType: 'claude-desktop' | 'claude-code' | 'codex' | 'antigravity';
   name: string;
   configPath: string;
   exists: boolean;
@@ -93,7 +93,7 @@ export function resolveServerLaunchCommand(): { command: string; args: string[] 
 export function detectMcpClients(customHome?: string): ClientDetectionResult[] {
   const home = customHome || process.env.GELADA_HOME_DIR || os.homedir();
   const platform = process.platform;
-  const candidates: { clientType: 'claude-desktop' | 'claude-code' | 'codex'; name: string; path: string }[] = [];
+  const candidates: { clientType: ClientDetectionResult['clientType']; name: string; path: string }[] = [];
 
   // 1. Claude Desktop
   if (platform === 'darwin') {
@@ -158,6 +158,22 @@ export function detectMcpClients(customHome?: string): ClientDetectionResult[] {
       path: path.join(appData, 'Codex', 'config.json'),
     });
   }
+
+  // 4. Antigravity — the IDE and the CLI that is Gelada's worker.
+  //
+  // One file serves both, and both spellings of the IDE: the app derives its
+  // data directory from its own name (~/.gemini/antigravity, or
+  // ~/.gemini/antigravity-ide) but reads its servers from a single shared
+  // config, built by joining the home directory with ".gemini" and "config" on
+  // every platform. Confirmed against the shipped bundle, which names the file
+  // in `mcpConfigFilePathSegments` and validates it against
+  // extensions/antigravity/schemas/mcp_config.schema.json — an `mcpServers`
+  // object whose entries allow exactly the `command` and `args` written here.
+  candidates.push({
+    clientType: 'antigravity',
+    name: 'Antigravity (~/.gemini/config/mcp_config.json)',
+    path: path.join(home, '.gemini', 'config', 'mcp_config.json'),
+  });
 
   return candidates.map((c) => ({
     clientType: c.clientType,

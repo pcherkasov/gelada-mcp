@@ -210,7 +210,10 @@ function checkClientRegistrations(): DiagnosticCheck {
     category: 'config',
     name: 'MCP Client Registration',
     status: 'pass',
-    message: `${launchers.length} client registration${launchers.length > 1 ? 's' : ''} resolve`,
+    message:
+      launchers.length === 1
+        ? '1 client registration resolves'
+        : `${launchers.length} client registrations resolve`,
     details: launchers.map((l) => `${l.clientName}: ${l.command}`),
   };
 }

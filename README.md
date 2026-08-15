@@ -100,6 +100,7 @@ You can also target specific client tools:
 ```bash
 gelada setup --uninstall --client claude
 gelada setup --uninstall --client codex
+gelada setup --uninstall --client antigravity
 ```
 
 ---
@@ -149,6 +150,29 @@ Add `gelada-mcp` to `~/.codex/config.json` or `mcp.json`:
 }
 ```
 
+### 4. Antigravity
+Both the IDE and the CLI read one shared file, `~/.gemini/config/mcp_config.json`
+(`%USERPROFILE%\.gemini\config\mcp_config.json` on Windows):
+```json
+{
+  "mcpServers": {
+    "gelada-mcp": {
+      "command": "gelada",
+      "args": ["mcp", "serve"]
+    }
+  }
+}
+```
+Sharing that file has a consequence worth knowing: `agy` loads these servers on
+every run, and `agy` is the worker Gelada delegates to. The worker therefore sees
+Gelada's own tools. It cannot use them — `delegate_task` refuses when it is
+called from inside a worker, so a worker cannot spawn workers of its own — but if
+you would rather it never saw them at all, keep Gelada out of this file and
+register it with your leader client only:
+```bash
+gelada setup --uninstall --client antigravity
+```
+
 ---
 
 ## CLI Command Reference
@@ -179,7 +203,7 @@ Options:
   -q, --quiet               Suppress stdout messages
   --uninstall               Remove gelada-mcp from detected client configurations
   --remove                  Alias for --uninstall
-  --client <name>           Target specific client (claude, codex, or all)
+  --client <name>           Target specific client (claude, codex, antigravity, or all)
   --no-smoke                Skip the end-to-end delegation check
   -y, --yes                 Accept the worker permission default without prompting
   --strict                  Exit non-zero if the environment is not ready

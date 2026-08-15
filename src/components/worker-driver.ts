@@ -392,7 +392,16 @@ export class AntigravityDriver {
         true,
     };
 
-    const sanitizedEnv = sanitizeEnvironment(process.env, options.env, sanitizationOptions);
+    // Marks every descendant of a worker as being inside one.
+    //
+    // Antigravity's IDE and its CLI read one shared MCP config, so a Gelada
+    // registered for the IDE is also loaded by `agy` — including the `agy` run
+    // here. Without a marker the worker holds delegate_task and can spawn
+    // workers of its own, in a worktree inside a worktree, on the same quota.
+    // Set last so it cannot be dropped by sanitization, and read back in
+    // delegate_task.
+    const workerEnv = { ...(options.env ?? {}), GELADA_WORKER: '1' };
+    const sanitizedEnv = sanitizeEnvironment(process.env, workerEnv, sanitizationOptions);
 
     let child: ChildProcess;
     try {
