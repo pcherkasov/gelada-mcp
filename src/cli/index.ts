@@ -39,8 +39,26 @@ export function createCliProgram(): Command {
 
 export async function runCli(argv: string[] = process.argv): Promise<void> {
   const userArgs = argv.slice(2);
+
   if (userArgs.length === 0) {
-    // Backward compatibility: default to executing `mcp serve` when zero arguments provided
+    // A bare `gelada` means two different things, and only one of them is a
+    // person.
+    //
+    // Nobody starts this server by hand: an MCP client spawns it and speaks
+    // JSON-RPC down a pipe. So a terminal on stdin is somebody looking for the
+    // command list — and answering that with a silent stdio server that waits
+    // forever on their keyboard is the least useful thing this program can do.
+    if (process.stdin.isTTY) {
+      createCliProgram().outputHelp();
+      return;
+    }
+
+    // No terminal: a client configured without the `mcp serve` arguments. That
+    // has always worked and still does, but the explicit form is what setup
+    // writes and what the README documents, so say so where clients surface it.
+    console.error(
+      'gelada: starting the MCP server from a bare invocation. Configure the client with args ["mcp", "serve"] instead.',
+    );
     await runMcpServe();
     return;
   }
