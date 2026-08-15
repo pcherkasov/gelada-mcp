@@ -119,6 +119,23 @@ Nothing needs to be tagged or published by hand. Do not create `v*` tags
 yourself — the pipeline creates them, and a tag that already exists is exactly
 what tells it there is nothing to release.
 
+Once the release exists, the pipeline installs it the way a stranger would:
+[`scripts/verify-install.sh`](scripts/verify-install.sh) downloads `install.sh`
+from the release, runs it three ways — no `GELADA_VERSION`, `vX.Y.Z`, and
+`X.Y.Z` — and fails unless each one leaves behind a binary that reports the
+version being released. It runs on macOS inside the release job and on Linux
+straight after, which is the only place a `linux` binary is ever executed. You
+can run it against any published release yourself:
+
+```bash
+bash scripts/verify-install.sh 0.1.5
+```
+
+This exists because `install.sh` requested an archive name no release has ever
+carried, from 0.1.0 through 0.1.3, and no test noticed — nothing ran it. Adding
+an installer flag, renaming an asset, or changing how a tag is resolved should
+all fail here rather than in someone's terminal.
+
 The whole pipeline is one workflow ([`.github/workflows/ci.yml`](.github/workflows/ci.yml))
 so that a single change is tested exactly once: pull requests are verified by
 the `pull_request` event, and pushes are restricted to `main`. Adding a second

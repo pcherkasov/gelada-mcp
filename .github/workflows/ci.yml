@@ -54,6 +54,12 @@ jobs:
         # drives a mock so CI needs no Antigravity install or credentials.
         run: npm test
 
+      # The real installer check runs after a release exists, which is too late
+      # to stop a broken script from being published. A syntax check is not,
+      # and it is the one class of breakage that costs nothing to catch here.
+      - name: Parse the shell scripts
+        run: bash -n install.sh scripts/verify-install.sh
+
       - name: Fail if the suite left git worktrees behind
         run: |
           count=$(git worktree list | wc -l)
@@ -206,3 +212,28 @@ jobs:
           files: |
             release-assets/*
             install.sh
+
+      # The one thing every step above proves is that the artifacts are correct.
+      # None of them proves a user can get one. install.sh asked for an archive
+      # name no release has ever had, from 0.1.0 to 0.1.3, and nothing noticed
+      # because nothing ran it. So run it — against the release just published,
+      # the way a user would, and refuse to call this release good until a
+      # downloaded binary reports its own version back.
+      - name: Verify install.sh delivers this release (macOS)
+        run: bash scripts/verify-install.sh "$VERSION"
+
+  # The same check on Linux, which the release job cannot do from a macOS runner.
+  # It is the platform with the least coverage otherwise: the linux binaries are
+  # cross-built by pkg and never executed anywhere else in this workflow, so this
+  # is the only step that proves one of them starts at all.
+  verify-install-linux:
+    name: verify install.sh (linux)
+    needs: [release-gate, release]
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.release-gate.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Verify install.sh delivers this release (linux)
+        run: bash scripts/verify-install.sh "$VERSION"
