@@ -1,27 +1,83 @@
 import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs/promises';
-import * as crypto from 'crypto';
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
+
+/**
+ * The repository releases are published from.
+ *
+ * Kept as a literal because the standalone binary carries no package.json to
+ * read, and guarded by a test that compares it against the `repository` field.
+ * The previous value named a repository that does not exist; every check 404'd,
+ * and the 404 was reported as "up to date".
+ */
+export const RELEASE_REPO = 'pcherkasov/gelada-mcp';
 
 export interface UpdateInfo {
   currentVersion: string;
   latestVersion: string;
   upToDate: boolean;
   releaseUrl: string;
-  assets: GitHubAsset[];
 }
 
-export interface GitHubAsset {
-  name: string;
-  browser_download_url: string;
+/** How this copy of Gelada was installed, which decides how it can be replaced. */
+export type InstallKind = 'npm' | 'standalone';
+
+export class UpdateCheckError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'UpdateCheckError';
+  }
+}
+
+/**
+ * Compares two release versions.
+ *
+ * Only the numeric core is compared, and a version carrying a prerelease suffix
+ * loses to the same core without one, per semver. Written out rather than
+ * reusing `Number(part)` across the whole string, which turned "0-rc1" into NaN
+ * and made every comparison against a prerelease answer "up to date".
+ */
+export function isUpToDate(current: string, latest: string): boolean {
+  const split = (v: string) => {
+    const [core, ...rest] = v.trim().replace(/^v/, '').split('-');
+    return {
+      parts: core.split('.').map((n) => Number.parseInt(n, 10) || 0),
+      prerelease: rest.join('-'),
+    };
+  };
+
+  const a = split(current);
+  const b = split(latest);
+
+  for (let i = 0; i < Math.max(a.parts.length, b.parts.length); i++) {
+    const c = a.parts[i] ?? 0;
+    const l = b.parts[i] ?? 0;
+    if (l > c) return false;
+    if (c > l) return true;
+  }
+
+  // Same numeric core: a prerelease is behind the final release of that core.
+  if (a.prerelease && !b.prerelease) return false;
+  return true;
+}
+
+/**
+ * npm replaces its own package; a standalone binary has to be swapped on disk.
+ *
+ * Detected through `process.pkg`, which only the packaged build defines, rather
+ * than by looking for "node_modules" in argv[1] — that guessed wrong for anyone
+ * running from a checkout, and threw outright when argv[1] was unset.
+ */
+export function detectInstallKind(): InstallKind {
+  return (process as unknown as { pkg?: unknown }).pkg ? 'standalone' : 'npm';
 }
 
 export class Updater {
-  private readonly repo = 'zugoman/gelada-mcp';
+  private readonly repo = RELEASE_REPO;
   private readonly currentVersion: string;
 
   constructor(currentVersion: string) {
@@ -29,155 +85,146 @@ export class Updater {
   }
 
   /**
-   * Fetches the latest release from GitHub API
+   * Asks GitHub what the latest release is.
+   *
+   * Throws when it cannot find out. A check that failed is not a check that
+   * passed: the previous version answered "up to date" whenever the request
+   * failed, which is the one answer guaranteed to be unhelpful — it is also the
+   * answer a user acts on by doing nothing.
    */
   public async checkForUpdates(): Promise<UpdateInfo> {
+    const endpoint = `https://api.github.com/repos/${this.repo}/releases/latest`;
+
+    let response: Response;
     try {
-      const response = await fetch(`https://api.github.com/repos/${this.repo}/releases/latest`, {
-        headers: { 'User-Agent': 'gelada-mcp-updater' }
-      });
-      
-      if (!response.ok) {
-        // Fallback to a mock or npm registry if repository is not public yet
-        return this.getMockUpdateInfo();
-      }
-
-      const data = await response.json() as any;
-      const latestVersion = data.tag_name ? data.tag_name.replace(/^v/, '') : this.currentVersion;
-      
-      return {
-        currentVersion: this.currentVersion,
-        latestVersion,
-        upToDate: this.isUpToDate(this.currentVersion, latestVersion),
-        releaseUrl: data.html_url,
-        assets: data.assets || [],
-      };
-    } catch (e) {
-      // In development/private mode, fallback to mock
-      return this.getMockUpdateInfo();
+      response = await fetch(endpoint, { headers: { 'User-Agent': 'gelada-mcp-updater' } });
+    } catch (err: unknown) {
+      throw new UpdateCheckError(
+        `Could not reach GitHub to check for updates: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
-  }
 
-  private isUpToDate(current: string, latest: string): boolean {
-    // Simple semver comparison
-    const currParts = current.split('.').map(Number);
-    const latestParts = latest.split('.').map(Number);
-    
-    for (let i = 0; i < Math.max(currParts.length, latestParts.length); i++) {
-      const c = currParts[i] || 0;
-      const l = latestParts[i] || 0;
-      if (l > c) return false;
-      if (c > l) return true;
+    if (!response.ok) {
+      throw new UpdateCheckError(
+        `GitHub answered ${response.status} ${response.statusText} for ${endpoint}`,
+      );
     }
-    return true;
-  }
 
-  private getMockUpdateInfo(): UpdateInfo {
+    const data = (await response.json()) as { tag_name?: string; html_url?: string };
+    if (!data.tag_name) {
+      throw new UpdateCheckError(`No tag_name in the latest release from ${endpoint}`);
+    }
+
+    const latestVersion = data.tag_name.replace(/^v/, '');
+
     return {
       currentVersion: this.currentVersion,
-      latestVersion: this.currentVersion,
-      upToDate: true,
-      releaseUrl: `https://github.com/${this.repo}/releases/latest`,
-      assets: []
+      latestVersion,
+      upToDate: isUpToDate(this.currentVersion, latestVersion),
+      releaseUrl: data.html_url || `https://github.com/${this.repo}/releases/tag/${data.tag_name}`,
     };
   }
 
-  /**
-   * Performs the update. Depending on the installation method, it will
-   * either trigger npm install, or download the binary asset and verify checksum.
-   */
+  /** The command a user would run by hand to get this release. */
+  public manualInstructions(info: UpdateInfo): string {
+    if (detectInstallKind() === 'npm') {
+      return 'npm install -g gelada-mcp@latest';
+    }
+    if (process.platform === 'win32') {
+      return `Download gelada-v${info.latestVersion}-win-x64.zip from ${info.releaseUrl}`;
+    }
+    return `curl -fsSL https://github.com/${this.repo}/releases/latest/download/install.sh | bash`;
+  }
+
   public async installUpdate(info: UpdateInfo): Promise<void> {
-    if (info.upToDate) {
+    if (info.upToDate) return;
+
+    console.log(`Updating from v${info.currentVersion} to v${info.latestVersion}...`);
+
+    if (detectInstallKind() === 'npm') {
+      await this.installViaNpm();
       return;
     }
 
-    console.log(`Starting update from v${info.currentVersion} to v${info.latestVersion}...`);
-
-    // Determine if we are running as an npm global package or a standalone binary
-    const isStandalone = !process.argv[1].includes('node_modules');
-
-    if (!isStandalone) {
-      // NPM Update
-      console.log('Detected NPM installation. Running npm install -g gelada-mcp@latest...');
-      try {
-        const { stdout, stderr } = await execAsync('npm install -g gelada-mcp@latest');
-        if (stdout) console.log(stdout);
-        if (stderr) console.error(stderr);
-        console.log('Update completed successfully via npm.');
-      } catch (err: any) {
-        throw new Error(`Failed to update via npm: ${err.message}`);
-      }
-    } else {
-      // Binary Update Logic (Downloading matching asset, verifying SHA256)
-      await this.performBinaryUpdate(info);
-    }
+    await this.installViaInstaller(info);
   }
 
-  private async performBinaryUpdate(info: UpdateInfo): Promise<void> {
-    const platform = os.platform();
-    const arch = os.arch();
-    
-    // 1. Find the appropriate asset
-    const assetKeyword = `${platform}-${arch}`;
-    const targetAsset = info.assets.find(a => a.name.includes(assetKeyword) && !a.name.endsWith('.sha256'));
-    const checksumAsset = info.assets.find(a => a.name.includes(assetKeyword) && a.name.endsWith('.sha256'));
-
-    if (!targetAsset) {
-      console.log(`No pre-compiled binary found for ${assetKeyword}. Please update via your package manager.`);
-      return;
-    }
-
-    console.log(`Found matching binary: ${targetAsset.name}`);
-    
-    // 2. Download Binary
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'gelada-update-'));
-    const binaryPath = path.join(tempDir, targetAsset.name);
-    await this.downloadFile(targetAsset.browser_download_url, binaryPath);
-
-    // 3. Download and Verify Checksum
-    if (checksumAsset) {
-      const checksumPath = path.join(tempDir, checksumAsset.name);
-      await this.downloadFile(checksumAsset.browser_download_url, checksumPath);
-      
-      const expectedChecksum = (await fs.readFile(checksumPath, 'utf8')).split(' ')[0].trim();
-      const actualChecksum = await this.calculateSha256(binaryPath);
-
-      if (expectedChecksum !== actualChecksum) {
-        throw new Error(`Checksum verification failed! Expected: ${expectedChecksum}, Got: ${actualChecksum}`);
-      }
-      console.log('Checksum verified successfully.');
-    } else {
-      console.warn('Warning: No checksum file found. Skipping verification.');
-    }
-
-    // 4. Replace current executable
-    // Typically `process.execPath` points to the node executable, but if it's a pkg binary, it points to the binary.
-    const currentExecutable = process.argv[1] || process.execPath;
-    console.log(`Replacing executable at ${currentExecutable}`);
-    
-    // Rename current to backup, move new to current, chmod +x
-    const backupPath = `${currentExecutable}.backup`;
+  private async installViaNpm(): Promise<void> {
+    console.log('npm installation detected. Running npm install -g gelada-mcp@latest...');
     try {
-      await fs.rename(currentExecutable, backupPath);
-      await fs.copyFile(binaryPath, currentExecutable);
-      await fs.chmod(currentExecutable, 0o755);
-      console.log('Binary updated successfully.');
-    } catch (e: any) {
-      console.error('Failed to replace executable, attempting rollback...');
-      await fs.rename(backupPath, currentExecutable).catch(() => {});
-      throw new Error(`Update replacement failed: ${e.message}`);
+      const { stdout, stderr } = await execFileAsync('npm', [
+        'install',
+        '-g',
+        'gelada-mcp@latest',
+      ]);
+      if (stdout) console.log(stdout);
+      if (stderr) console.error(stderr);
+      console.log('Update completed via npm.');
+    } catch (err: unknown) {
+      throw new Error(
+        `Failed to update via npm: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 
-  private async downloadFile(url: string, dest: string): Promise<void> {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`Failed to download ${url}: ${res.statusText}`);
-    const buffer = Buffer.from(await res.arrayBuffer());
-    await fs.writeFile(dest, buffer);
-  }
+  /**
+   * Runs the installer published with the release, into the directory this
+   * binary already lives in.
+   *
+   * install.sh is the only path that knows how a release is laid out — asset
+   * names, archive shape, checksums — and the only one CI exercises end to end
+   * (scripts/verify-install.sh). Reimplementing it here is what produced a
+   * download step that copied a .tar.gz over the running executable and a
+   * checksum step that never found a checksum to compare.
+   */
+  private async installViaInstaller(info: UpdateInfo): Promise<void> {
+    if (process.platform === 'win32') {
+      throw new Error(
+        `Automatic update is not supported for the standalone Windows build. ${this.manualInstructions(info)}`,
+      );
+    }
 
-  private async calculateSha256(filePath: string): Promise<string> {
-    const data = await fs.readFile(filePath);
-    return crypto.createHash('sha256').update(data).digest('hex');
+    const target = process.execPath;
+    const installDir = path.dirname(target);
+
+    try {
+      await fs.access(installDir, fs.constants.W_OK);
+    } catch {
+      throw new Error(
+        `${installDir} is not writable by this user. Re-run with the rights to write there, or: ${this.manualInstructions(info)}`,
+      );
+    }
+
+    const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'gelada-update-'));
+    const installer = path.join(workDir, 'install.sh');
+
+    try {
+      const url = `https://github.com/${this.repo}/releases/download/v${info.latestVersion}/install.sh`;
+      const res = await fetch(url);
+      if (!res.ok) {
+        throw new Error(`could not download the installer from ${url} (${res.status})`);
+      }
+      await fs.writeFile(installer, Buffer.from(await res.arrayBuffer()));
+
+      console.log(`Installing v${info.latestVersion} into ${installDir}...`);
+      const { stdout, stderr } = await execFileAsync('bash', [installer], {
+        env: {
+          ...process.env,
+          GELADA_VERSION: info.latestVersion,
+          INSTALL_DIR: installDir,
+        },
+      });
+      if (stdout) console.log(stdout);
+      if (stderr) console.error(stderr);
+
+      console.log(`Update completed. ${target} is now v${info.latestVersion}.`);
+    } catch (err: unknown) {
+      throw new Error(
+        `Failed to update the standalone binary: ${err instanceof Error ? err.message : String(err)}. ` +
+          `Nothing was replaced — ${this.manualInstructions(info)}`,
+      );
+    } finally {
+      await fs.rm(workDir, { recursive: true, force: true }).catch(() => {});
+    }
   }
 }

@@ -5,6 +5,54 @@ All notable changes to **Gelada MCP** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.6] - 2026-08-15
+
+### Fixed
+
+- **`gelada update` always said you were up to date.** It asked GitHub about
+  `zugoman/gelada-mcp`, a repository that does not exist. Every request came back
+  404, and the handler read any non-ok response as "the repository is not public
+  yet" and returned a stub whose latest version was the installed one. Observed
+  on 0.1.3 while 0.1.5 was published: `Current version: v0.1.3 / Latest version:
+  v0.1.3 / Status: Up to date`.
+
+  That is worse than having no update command. A check that cannot run now fails,
+  loudly and with a non-zero exit — reporting success is the one answer a user
+  acts on by doing nothing, which is precisely wrong when the truth is unknown.
+  The repository is pinned to the `repository` field in package.json by a test,
+  so it cannot drift again.
+
+  Three further defects went with it. The version comparison ran `Number()` over
+  every dot-separated part, so `0.2.0-rc1` produced `NaN` and any prerelease
+  compared as current; it now follows semver, including a prerelease ranking
+  below the release it precedes. Installation type was guessed by searching
+  `argv[1]` for `node_modules`, which was wrong from a checkout and threw when
+  `argv[1]` was unset; it now reads `process.pkg`. And the standalone upgrade
+  path downloaded the release `.tar.gz` and copied the archive itself over the
+  running executable, without extracting it — on Windows it never matched an
+  asset at all, since `os.platform()` is `win32` and the asset is `win-x64`.
+
+- **Standalone upgrades now go through `install.sh`.** It is the only code that
+  knows how a release is laid out, and the only path CI exercises end to end, so
+  `gelada update --install` runs it into the directory the current binary lives
+  in rather than reimplementing download-verify-replace. The Windows standalone
+  build says plainly that it cannot self-update, and prints where to get the zip.
+
+### Added
+
+- **`install.sh` verifies what it downloaded.** Releases have always shipped a
+  `checksums.txt`; nothing read it. The old updater looked for a per-asset
+  `.sha256` that has never existed and skipped verification with a warning on
+  every run. The installer now matches the archive against the published
+  checksum and refuses to install on a mismatch.
+
+- **`install.sh` lands the binary by rename.** Copying onto the target truncates
+  it and fills it back in, so an interrupted install leaves a `gelada` that
+  exists and does not run. A fully written sibling is renamed into place instead:
+  atomic, and it never opens the file a running process is executing — which
+  matters now that `gelada update` replaces the binary it is running from.
+  `scripts/verify-install.sh` covers installing over an existing install.
+
 ## [0.1.5] - 2026-08-15
 
 ### Added

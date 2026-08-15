@@ -91,6 +91,49 @@ else
   wget -qO "${TMP_DIR}/${ARCHIVE_NAME}" "$DOWNLOAD_URL"
 fi
 
+# Verify against the checksums published with the release.
+#
+# Every release ships one checksums.txt covering all five archives. Nothing used
+# to read it: `gelada update` looked for a per-asset .sha256 that has never
+# existed and skipped verification with a warning every single time.
+CHECKSUMS_URL="https://github.com/${REPO}/releases/download/${TAG}/checksums.txt"
+if command -v curl >/dev/null 2>&1; then
+  curl -fsSL "$CHECKSUMS_URL" -o "${TMP_DIR}/checksums.txt" || true
+else
+  wget -qO "${TMP_DIR}/checksums.txt" "$CHECKSUMS_URL" || true
+fi
+
+if [ -s "${TMP_DIR}/checksums.txt" ]; then
+  EXPECTED="$(awk -v name="$ARCHIVE_NAME" '$2 == name || $2 == "*" name { print $1 }' \
+    "${TMP_DIR}/checksums.txt" | head -n 1)"
+
+  if [ -z "$EXPECTED" ]; then
+    echo "Error: ${ARCHIVE_NAME} is not listed in checksums.txt for ${TAG}."
+    exit 1
+  fi
+
+  if command -v sha256sum >/dev/null 2>&1; then
+    ACTUAL="$(sha256sum "${TMP_DIR}/${ARCHIVE_NAME}" | cut -d' ' -f1)"
+  elif command -v shasum >/dev/null 2>&1; then
+    ACTUAL="$(shasum -a 256 "${TMP_DIR}/${ARCHIVE_NAME}" | cut -d' ' -f1)"
+  else
+    ACTUAL=""
+    echo "Warning: no sha256sum or shasum available; skipping checksum verification."
+  fi
+
+  if [ -n "$ACTUAL" ]; then
+    if [ "$ACTUAL" != "$EXPECTED" ]; then
+      echo "Error: checksum mismatch for ${ARCHIVE_NAME}."
+      echo "  expected: ${EXPECTED}"
+      echo "  actual:   ${ACTUAL}"
+      exit 1
+    fi
+    echo "Checksum verified."
+  fi
+else
+  echo "Warning: could not download checksums.txt for ${TAG}; skipping verification."
+fi
+
 echo "Extracting archive..."
 tar -xzf "${TMP_DIR}/${ARCHIVE_NAME}" -C "$TMP_DIR"
 
@@ -113,12 +156,25 @@ if [ ! -d "$INSTALL_DIR" ]; then
   mkdir -p "$INSTALL_DIR" 2>/dev/null || sudo mkdir -p "$INSTALL_DIR"
 fi
 
+# Land the binary by rename, never by writing over the destination.
+#
+# Copying onto the target truncates whatever is there and fills it back in, so
+# an install interrupted midway — full disk, ^C, a dropped network mount —
+# leaves a `gelada` that exists and does not run. Renaming a fully written
+# sibling into place is atomic: the old binary stays intact until the instant
+# the new one replaces it, and the file any running process is executing is
+# never opened for writing at all. That last part matters here because
+# `gelada update` upgrades the binary it is itself running from.
+STAGED="${INSTALL_DIR}/.gelada.new.$$"
+
 if [ -w "$INSTALL_DIR" ]; then
-  cp "$BINARY_PATH" "${INSTALL_DIR}/gelada"
-  chmod +x "${INSTALL_DIR}/gelada"
+  cp "$BINARY_PATH" "$STAGED"
+  chmod +x "$STAGED"
+  mv -f "$STAGED" "${INSTALL_DIR}/gelada"
 else
-  sudo cp "$BINARY_PATH" "${INSTALL_DIR}/gelada"
-  sudo chmod +x "${INSTALL_DIR}/gelada"
+  sudo cp "$BINARY_PATH" "$STAGED"
+  sudo chmod +x "$STAGED"
+  sudo mv -f "$STAGED" "${INSTALL_DIR}/gelada"
 fi
 
 echo "Gelada MCP CLI installed successfully to ${INSTALL_DIR}/gelada"
