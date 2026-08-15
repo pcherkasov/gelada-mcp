@@ -3,7 +3,10 @@ import path from 'node:path';
 import { Command } from 'commander';
 import { getConfigPath } from '../utils/paths.js';
 import { DEFAULT_GELADA_CONFIG, GeladaConfigSchema } from './setup.js';
-import { normalizeLocale, SUPPORTED_LOCALES, t } from '../utils/i18n.js';
+import { t } from '../utils/i18n.js';
+import { validateSetting } from '../config-schema.js';
+import { runConfigEditor } from '../config-editor.js';
+import { NotInteractiveError } from '../utils/prompt.js';
 
 export interface ReadConfigResult {
   config: GeladaConfigSchema;
@@ -23,7 +26,7 @@ function getNestedValue(obj: Record<string, unknown>, keyPath: string): unknown 
   }, obj);
 }
 
-function setNestedValue(obj: Record<string, unknown>, keyPath: string, value: string): void {
+function setNestedValue(obj: Record<string, unknown>, keyPath: string, value: unknown): void {
   const parts = keyPath.split('.');
   let curr: Record<string, unknown> = obj;
   for (let i = 0; i < parts.length - 1; i++) {
@@ -34,12 +37,7 @@ function setNestedValue(obj: Record<string, unknown>, keyPath: string, value: st
     curr = curr[part] as Record<string, unknown>;
   }
 
-  let parsedVal: unknown = value;
-  if (value === 'true') parsedVal = true;
-  else if (value === 'false') parsedVal = false;
-  else if (!isNaN(Number(value)) && value.trim() !== '') parsedVal = Number(value);
-
-  curr[parts[parts.length - 1]] = parsedVal;
+  curr[parts[parts.length - 1]] = value;
 }
 
 function deepMerge<T extends Record<string, unknown>>(
@@ -89,6 +87,10 @@ export function readConfig(customPath?: string): ReadConfigResult {
   try {
     const raw = fs.readFileSync(configPath, 'utf-8');
     const parsed = JSON.parse(raw) as Record<string, unknown>;
+    // Written by every version up to 0.1.8 and read by nothing: no migration
+    // ever consulted it, so it promised a compatibility guarantee that did not
+    // exist while looking, next to `gelada --version`, like a wrong answer.
+    delete parsed.version;
     const merged = deepMerge(
       DEFAULT_GELADA_CONFIG as unknown as Record<string, unknown>,
       parsed,
@@ -120,34 +122,65 @@ export function writeConfig(config: Record<string, unknown>, customPath?: string
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
 }
 
+function printConfig(options: { json?: boolean }): void {
+  const res = readConfig();
+  if (res.corrupt) {
+    console.error(`❌ ${res.error}`);
+    process.exit(1);
+  }
+
+  if (res.warning && !options.json) {
+    console.warn(`⚠️  ${res.warning}`);
+  }
+
+  if (options.json) {
+    console.log(JSON.stringify(res.config, null, 2));
+  } else {
+    console.log(`Configuration (${res.path}):`);
+    console.log(JSON.stringify(res.config, null, 2));
+  }
+}
+
 export function registerConfigCommand(program: Command): void {
   const configCmd = program
     .command('config')
     .description(t('cli.cmd.config'));
 
+  // A bare `gelada config` at a terminal opens the editor; through a pipe it
+  // keeps printing the configuration, so scripts reading it are unaffected. Same
+  // split as a bare `gelada`: a terminal means a person.
+  configCmd.action(async () => {
+    if (!process.stdin.isTTY || !process.stdout.isTTY) {
+      printConfig({});
+      return;
+    }
+    try {
+      const changed = await runConfigEditor({
+        read: () => {
+          const res = readConfig();
+          return { config: res.config as unknown as Record<string, unknown>, path: res.path, corrupt: res.corrupt, error: res.error };
+        },
+        write: (config) => writeConfig(config),
+        log: (message) => console.log(message),
+        error: (message) => console.error(`❌ ${message}`),
+      });
+      if (changed === -1) process.exitCode = 1;
+    } catch (err: unknown) {
+      if (err instanceof NotInteractiveError) {
+        console.error(t('editor.notInteractive'));
+        process.exitCode = 1;
+        return;
+      }
+      throw err;
+    }
+  });
+
   configCmd
-    .command('list', { isDefault: true })
+    .command('list')
     .alias('show')
     .description('Display current configuration settings')
     .option('--json', 'Output configuration as raw JSON')
-    .action((options: { json?: boolean }) => {
-      const res = readConfig();
-      if (res.corrupt) {
-        console.error(`❌ ${res.error}`);
-        process.exit(1);
-      }
-
-      if (res.warning && !options.json) {
-        console.warn(`⚠️  ${res.warning}`);
-      }
-
-      if (options.json) {
-        console.log(JSON.stringify(res.config, null, 2));
-      } else {
-        console.log(`Configuration (${res.path}):`);
-        console.log(JSON.stringify(res.config, null, 2));
-      }
-    });
+    .action((options: { json?: boolean }) => printConfig(options));
 
   configCmd
     .command('get <key>')
@@ -186,21 +219,18 @@ export function registerConfigCommand(program: Command): void {
         process.exit(1);
       }
 
-      // The one key worth checking: a typo here is silent otherwise, since an
-      // unknown language simply falls back to English and looks like the
-      // setting was ignored.
-      if (key === 'ui.language' && value !== '' && !normalizeLocale(value)) {
-        console.error(
-          `❌ ${t('config.language.invalid', {
-            value,
-            supported: SUPPORTED_LOCALES.join(', '),
-          })}`,
-        );
+      // Validated through the same registry the editor uses, so the two cannot
+      // disagree. Before this, `set` took anything: writing nonsense to
+      // policy.mode succeeded and the next run quietly used a default, which is
+      // indistinguishable from the setting having no effect.
+      const validation = validateSetting(key, value);
+      if (!validation.ok) {
+        console.error(`❌ ${validation.error}`);
         process.exit(1);
       }
 
       const configObj = structuredClone(res.config) as unknown as Record<string, unknown>;
-      setNestedValue(configObj, key, value);
+      setNestedValue(configObj, key, validation.value);
 
       writeConfig(configObj, res.path);
       console.log(`✅ Updated ${key} = ${value} in ${res.path}`);

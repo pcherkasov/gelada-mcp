@@ -5,6 +5,41 @@ All notable changes to **Gelada MCP** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.9] - 2026-08-15
+
+### Added
+
+- **`gelada config` is an editor now.** With no arguments at a terminal it opens
+  an arrow-key list of the settings worth changing, each showing its current
+  value, with named choices instead of raw strings — `Strict — only allowed
+  commands run` rather than `strict`. Enter changes one, `q` leaves, and each
+  change is written as it is made rather than at the end, so there is no unsaved
+  state to lose. Through a pipe it prints the configuration exactly as before,
+  so anything scripted against it is unaffected — the same split as a bare
+  `gelada`: a terminal means a person.
+
+  No dependency was added for it. The menu is one file: navigation is a pure
+  function over plain state, so it is tested without a terminal, and only the
+  run loop touches stdin.
+
+### Fixed
+
+- **`gelada config set` accepted anything.** `gelada config set policy.mode
+  nonsense` wrote nonsense to disk, and the next run silently fell back to a
+  default — indistinguishable from the setting having no effect. Settings now
+  live in one registry that both the editor and `set` validate against, so the
+  two cannot disagree about what is allowed. Numbers are range-checked, booleans
+  accept the spellings people actually type, and lists are stored as lists.
+  Unknown keys still pass through: the registry validates what it knows rather
+  than blocking every future key until someone remembers to register it.
+
+- **The config reported a version that meant nothing.** Every config file
+  carried `"version": "1.0.0"` — a schema version written by `setup` and read by
+  no code at all. There is no migration that consulted it. Sitting at the top of
+  `gelada config` output it looked like a product version, and disagreed with
+  the real one. It is no longer written, and is stripped from existing files on
+  read.
+
 ## [0.1.8] - 2026-08-15
 
 ### Added

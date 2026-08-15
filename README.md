@@ -253,6 +253,34 @@ gelada mcp serve
 ```
 
 ### 4. `gelada config`
+Run it with no arguments at a terminal and it opens an editor — arrow keys,
+Enter to change, `q` to leave. Every change is written as you make it.
+
+```
+Gelada settings — /Users/you/.config/gelada/config.json
+
+❯  Interface language   Follow the system
+   Worker command       agy
+   Worker timeout       300
+   Policy mode          Strict — only allowed commands run
+   Allowed commands     git, npm, npx, cargo, pytest, make, go
+   Log level            Info — normal
+   Write a log file     on
+   Done                 close the editor
+
+↑/↓ move · Enter change · q quit
+```
+
+Through a pipe it prints the configuration instead, so scripts reading
+`gelada config` are unaffected.
+
+The editor and `gelada config set` validate against one shared registry, so a
+value the editor would not offer is a value `set` refuses:
+```bash
+gelada config set policy.mode nonsense
+# ❌ policy.mode must be one of: strict, permissive, disabled (got "nonsense")
+```
+
 Inspect and update global Gelada configuration settings (`~/.config/gelada/config.yaml`).
 ```bash
 gelada config list                      # Display active merged configuration

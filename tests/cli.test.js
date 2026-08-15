@@ -82,7 +82,11 @@ async function testSetupCommand() {
     const configPath = path.join(tmpDir, 'config.json');
     assert.ok(fs.existsSync(configPath), 'config.json should be created in custom config dir');
     const parsed = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-    assert.ok(parsed.version);
+    // The config no longer carries a schema version: nothing read it, so it
+    // implied a compatibility guarantee that did not exist. Assert on a setting
+    // that is actually load-bearing instead.
+    assert.equal(parsed.version, undefined);
+    assert.ok(parsed.worker.command);
     assert.ok(parsed.worker);
     pass('gelada setup with GELADA_CONFIG_DIR override');
   } finally {

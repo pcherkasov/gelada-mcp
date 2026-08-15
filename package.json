@@ -1,6 +1,6 @@
 {
   "name": "gelada-mcp",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Local open-source MCP server delegating routine coding tasks to local worker agents",
   "type": "module",
   "main": "dist/index.js",
