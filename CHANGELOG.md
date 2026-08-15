@@ -5,6 +5,21 @@ All notable changes to **Gelada MCP** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.7] - 2026-08-15
+
+### Fixed
+
+- **Typing `gelada` started a server instead of showing the commands.** With no
+  arguments it went straight to `mcp serve`, so a person who typed the program's
+  own name got no output at all and a process that never returned — it was
+  sitting there reading JSON-RPC from their keyboard. Nobody starts this server
+  by hand; an MCP client spawns it down a pipe.
+
+  A terminal on stdin now gets the command list and exits 0. Without a terminal
+  the old behaviour is unchanged, because a bare invocation there is a client
+  configured without `mcp serve` and breaking it would help nobody — it prints a
+  line on stderr saying which arguments to configure instead.
+
 ## [0.1.6] - 2026-08-15
 
 ### Fixed
