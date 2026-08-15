@@ -8,7 +8,11 @@ import {
   stableNodePath,
   resolveServerLaunchCommand,
   inspectRegisteredLaunchers,
+  detectMcpClients,
 } from '../../dist/cli/utils/mcp-clients.js';
+import { updateClientConfigs } from '../../dist/cli/commands/setup.js';
+
+const ANTIGRAVITY_CONFIG = ['.gemini', 'config', 'mcp_config.json'];
 
 /**
  * Builds a throwaway Homebrew-shaped tree:
@@ -125,6 +129,112 @@ describe('MCP client registration paths', () => {
     });
   });
 
+  describe('Antigravity client', () => {
+    function antigravityConfigDir(home) {
+      const dir = path.join(home, ...ANTIGRAVITY_CONFIG.slice(0, -1));
+      fs.mkdirSync(dir, { recursive: true });
+      return dir;
+    }
+
+    function readAntigravityConfig(home) {
+      return JSON.parse(fs.readFileSync(path.join(home, ...ANTIGRAVITY_CONFIG), 'utf-8'));
+    }
+
+    it('is detected at the config path the IDE and the CLI share', () => {
+      const client = detectMcpClients(tmp).find((c) => c.clientType === 'antigravity');
+      assert.ok(client, 'Antigravity must be a detected client');
+      assert.equal(client.configPath, path.join(tmp, ...ANTIGRAVITY_CONFIG));
+    });
+
+    it('registers into the existing mcpServers object without disturbing it', () => {
+      antigravityConfigDir(tmp);
+      fs.writeFileSync(
+        path.join(tmp, ...ANTIGRAVITY_CONFIG),
+        JSON.stringify({ mcpServers: { context7: { serverUrl: 'https://example.invalid/mcp' } } }),
+        'utf-8',
+      );
+
+      const { clientUpdates } = updateClientConfigs({ homeDir: tmp, client: 'antigravity' });
+      const update = clientUpdates.find((u) => /Antigravity/.test(u.clientName));
+      assert.equal(update.action, 'registered');
+
+      const config = readAntigravityConfig(tmp);
+      assert.ok(config.mcpServers.context7, 'the servers already there must survive');
+
+      // The IDE validates each entry with additionalProperties: false, so an
+      // unrecognized key would make it reject the whole file.
+      assert.deepEqual(Object.keys(config.mcpServers['gelada-mcp']).sort(), ['args', 'command']);
+      assert.deepEqual(config.mcpServers['gelada-mcp'].args.slice(-2), ['mcp', 'serve']);
+    });
+
+    it('creates the config when only the directory exists', () => {
+      antigravityConfigDir(tmp);
+
+      const { clientUpdates } = updateClientConfigs({ homeDir: tmp, client: 'antigravity' });
+      assert.equal(clientUpdates.find((u) => /Antigravity/.test(u.clientName)).action, 'registered');
+      assert.ok(readAntigravityConfig(tmp).mcpServers['gelada-mcp']);
+    });
+
+    it('is skipped when Antigravity is not installed', () => {
+      const { clientUpdates } = updateClientConfigs({ homeDir: tmp, client: 'antigravity' });
+      assert.equal(clientUpdates.find((u) => /Antigravity/.test(u.clientName)).action, 'skipped');
+      assert.ok(!fs.existsSync(path.join(tmp, ...ANTIGRAVITY_CONFIG)));
+    });
+
+    it('uninstalls its registration and leaves the others alone', () => {
+      antigravityConfigDir(tmp);
+      updateClientConfigs({ homeDir: tmp, client: 'antigravity' });
+      fs.writeFileSync(
+        path.join(tmp, ...ANTIGRAVITY_CONFIG),
+        JSON.stringify({
+          mcpServers: {
+            ...readAntigravityConfig(tmp).mcpServers,
+            context7: { serverUrl: 'https://example.invalid/mcp' },
+          },
+        }),
+        'utf-8',
+      );
+
+      const { clientUpdates } = updateClientConfigs({
+        homeDir: tmp,
+        client: 'antigravity',
+        uninstall: true,
+      });
+      assert.equal(
+        clientUpdates.find((u) => /Antigravity/.test(u.clientName)).action,
+        'uninstalled',
+      );
+
+      const config = readAntigravityConfig(tmp);
+      assert.ok(!config.mcpServers['gelada-mcp']);
+      assert.ok(config.mcpServers.context7);
+    });
+
+    it('--client antigravity touches no other client', () => {
+      antigravityConfigDir(tmp);
+      fs.writeFileSync(path.join(tmp, '.claude.json'), '{}', 'utf-8');
+
+      updateClientConfigs({ homeDir: tmp, client: 'antigravity' });
+
+      assert.equal(fs.readFileSync(path.join(tmp, '.claude.json'), 'utf-8'), '{}');
+      assert.ok(readAntigravityConfig(tmp).mcpServers['gelada-mcp']);
+    });
+
+    it('--client claude and --client codex leave Antigravity alone', () => {
+      antigravityConfigDir(tmp);
+      fs.writeFileSync(path.join(tmp, ...ANTIGRAVITY_CONFIG), '{}', 'utf-8');
+
+      for (const client of ['claude', 'codex']) {
+        updateClientConfigs({ homeDir: tmp, client });
+        assert.equal(
+          fs.readFileSync(path.join(tmp, ...ANTIGRAVITY_CONFIG), 'utf-8'),
+          '{}',
+          `--client ${client} must not write to Antigravity`,
+        );
+      }
+    });
+  });
+
   describe('inspectRegisteredLaunchers', () => {
     function writeClaudeCodeConfig(home, entry) {
       fs.writeFileSync(
@@ -172,6 +282,27 @@ describe('MCP client registration paths', () => {
     it('skips a config it cannot parse rather than throwing', () => {
       fs.writeFileSync(path.join(tmp, '.claude.json'), '{ not json', 'utf-8');
       assert.deepEqual(inspectRegisteredLaunchers(tmp), []);
+    });
+
+    it('sees a registration made in Antigravity', () => {
+      const dir = path.join(tmp, ...ANTIGRAVITY_CONFIG.slice(0, -1));
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(
+        path.join(tmp, ...ANTIGRAVITY_CONFIG),
+        JSON.stringify({
+          mcpServers: {
+            'gelada-mcp': {
+              command: '/opt/homebrew/Cellar/node/25.9.0_2/bin/node',
+              args: ['/somewhere/gelada.js', 'mcp', 'serve'],
+            },
+          },
+        }),
+        'utf-8',
+      );
+
+      const [launcher] = inspectRegisteredLaunchers(tmp);
+      assert.match(launcher.clientName, /Antigravity/);
+      assert.equal(launcher.commandExists, false);
     });
 
     it('reads the snake_case container some clients use', () => {

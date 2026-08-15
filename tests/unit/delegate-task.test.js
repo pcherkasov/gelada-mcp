@@ -319,4 +319,51 @@ describe('Antigravity CLI (agy) Integration Unit Tests', () => {
       assert.match(revData.error, /agy login/i);
     });
   });
+  describe('7. Nested delegation guard', () => {
+    it('refuses to delegate from inside a worker, without registering a task', async () => {
+      // Antigravity's IDE and its CLI read one shared mcp_config.json, so a
+      // Gelada registered for the IDE is loaded into the worker's own `agy` run
+      // too. The worker driver marks its children so this can be refused.
+      const { server, delegateHandler } = setupToolHandlers();
+      const before = server.components.taskRegistry.getAllTasks?.().length ?? 0;
+
+      process.env.GELADA_WORKER = '1';
+      try {
+        const res = await delegateHandler({
+          objective: 'Delegate something from inside a worker',
+          repoPath: tempRepoDir,
+          allowedPaths: ['src/**'],
+        });
+        const data = JSON.parse(res.content[0].text);
+
+        assert.equal(data.status, 'failed');
+        assert.match(data.error, /[Nn]ested delegation/);
+        assert.equal(data.taskId, undefined, 'a refused delegation must not mint a task id');
+        assert.equal(
+          server.components.taskRegistry.getAllTasks?.().length ?? 0,
+          before,
+          'a refused delegation must not register a task',
+        );
+      } finally {
+        delete process.env.GELADA_WORKER;
+      }
+    });
+
+    it('delegates normally when the marker is absent', async () => {
+      const { command } = await createMockAgy(tempRepoDir, {});
+      process.env.AGY_COMMAND = command;
+      delete process.env.GELADA_WORKER;
+
+      const { server, delegateHandler } = setupToolHandlers();
+      const { payload } = await delegateAndWait(delegateHandler, server.components.taskRegistry, {
+        repoPath: tempRepoDir,
+        taskType: 'unit-test',
+        objective: 'Write tests for feature A',
+        modelProfile: 'mock-pro-high',
+      });
+
+      assert.ok(payload.taskId, 'a normal delegation still mints a task id');
+      assert.equal(payload.status, 'running');
+    });
+  });
 });

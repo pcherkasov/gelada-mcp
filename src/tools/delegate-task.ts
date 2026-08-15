@@ -193,6 +193,31 @@ export function registerDelegateTaskTool(
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     async (args) => {
+      // A worker must not delegate. Antigravity's IDE and its CLI share one MCP
+      // config, so registering Gelada for the IDE also loads it into every `agy`
+      // run — the worker's own included. Nothing else stops it from recursing:
+      // the worker runs with permission prompts disabled, so it would spawn
+      // workers inside its own worktree, spending the same quota, with no
+      // ceiling. The worker driver marks its children; refuse here.
+      if (process.env.GELADA_WORKER === '1') {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify(
+                {
+                  status: 'failed',
+                  error:
+                    'Nested delegation is not supported: this Gelada is running inside a Gelada worker. Do the work directly.',
+                },
+                null,
+                2,
+              ),
+            },
+          ],
+        };
+      }
+
       const repoPath = args.repoPath ?? process.cwd();
       const artifacts = artifactsFor(components, repoPath);
       const taskId = `task-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;

@@ -5,6 +5,35 @@ All notable changes to **Gelada MCP** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5] - 2026-08-15
+
+### Added
+
+- **`gelada setup` knows Antigravity.** It configured Claude Desktop, Claude Code
+  and Codex, but not the IDE whose CLI is Gelada's own worker — so an Antigravity
+  user registered Gelada by hand, and when 0.1.4 taught setup to repair a stale
+  registration, the one client that needed repairing was the one setup would not
+  touch.
+
+  The config is `~/.gemini/config/mcp_config.json`, one file shared by the IDE,
+  its `antigravity-ide` variant and the `agy` CLI. Registration, `--uninstall`
+  and `--client antigravity` all work as they do for the other clients, and
+  `gelada doctor` now validates that registration too.
+
+### Fixed
+
+- **A worker could delegate to itself.** Because Antigravity's CLI reads the same
+  config as its IDE, registering Gelada for the IDE also loads Gelada into every
+  `agy` run — including the one Gelada spawns as its worker. `agy` has no flag to
+  exclude a server, and the worker runs with permission prompts disabled, so
+  nothing stood between it and `delegate_task`: workers spawning workers, in
+  worktrees inside worktrees, on the same quota, with no ceiling.
+
+  The worker driver now marks every process it spawns, and `delegate_task`
+  refuses when it sees that mark, before a task id is minted. Verified against
+  the shipped Antigravity bundle and by observing `agy --print` load the shared
+  config on a headless run.
+
 ## [0.1.4] - 2026-08-15
 
 ### Fixed
