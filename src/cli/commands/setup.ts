@@ -19,7 +19,6 @@ export { detectMcpClients, resolveServerLaunchCommand, stableNodePath } from '..
 export type { ClientDetectionResult } from '../utils/mcp-clients.js';
 
 export interface GeladaConfigSchema {
-  version: string;
   worker: {
     command: string;
     args: string[];
@@ -44,7 +43,6 @@ export interface GeladaConfigSchema {
 }
 
 export const DEFAULT_GELADA_CONFIG: GeladaConfigSchema = {
-  version: '1.0.0',
   worker: {
     command: 'agy',
     args: [],

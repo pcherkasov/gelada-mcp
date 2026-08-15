@@ -171,7 +171,9 @@ describe('CLI localisation', () => {
               env: { ...process.env, GELADA_CONFIG_DIR: configDir, GELADA_LANG: 'en' },
             }),
           (err) => {
-            assert.match(String(err.stderr), /Unsupported language "klingon"/);
+            // Rejected by the shared settings registry, which replaced the
+            // language-specific check with one message shape for every setting.
+            assert.match(String(err.stderr), /ui\.language must be one of/);
             return true;
           },
         );

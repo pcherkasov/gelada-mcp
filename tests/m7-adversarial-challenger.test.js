@@ -129,7 +129,7 @@ describe('M7 Empirical Challenger CLI Framework & Subcommand Suite', () => {
       assert.ok(fs.existsSync(res.configFile), 'config.json should exist');
 
       const configContent = JSON.parse(fs.readFileSync(res.configFile, 'utf-8'));
-      assert.equal(configContent.version, '1.0.0');
+      assert.equal(configContent.version, undefined, 'no schema version is written any more');
       assert.equal(configContent.worker.command, 'agy');
     });
 
@@ -202,20 +202,22 @@ describe('M7 Empirical Challenger CLI Framework & Subcommand Suite', () => {
         },
       );
       const cfg = JSON.parse(stdout);
-      assert.equal(cfg.version, '1.0.0');
+      // No `version`: the config carried a schema version that no code ever
+      // read, so it promised a compatibility guarantee that did not exist.
+      assert.equal(cfg.version, undefined);
       assert.equal(cfg.worker.command, 'agy');
       assert.equal(cfg.policy.mode, 'strict');
     });
 
     it('4.2 Config get resolves primitive and nested dot-notation keys', async () => {
-      const { stdout: verOut } = await execFileAsync(
+      const { stdout: modeOut } = await execFileAsync(
         process.execPath,
-        [GELADA_BIN, 'config', 'get', 'version'],
+        [GELADA_BIN, 'config', 'get', 'policy.mode'],
         {
           env: { ...process.env, GELADA_CONFIG_DIR: tmpConfigDir },
         },
       );
-      assert.equal(verOut.trim(), '1.0.0');
+      assert.equal(modeOut.trim(), 'strict');
 
       const { stdout: timeoutOut } = await execFileAsync(
         process.execPath,
