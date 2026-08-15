@@ -7,7 +7,15 @@ import * as readline from 'node:readline/promises';
 import { getConfigDir, getConfigPath, getDataDir, getLogDir } from '../utils/paths.js';
 import { runDiagnostics } from './doctor.js';
 import { runSmokeTest } from './smoke.js';
-import { packagePath } from '../../utils/package-paths.js';
+import { detectMcpClients, resolveServerLaunchCommand } from '../utils/mcp-clients.js';
+import type { ClientDetectionResult } from '../utils/mcp-clients.js';
+
+// Client discovery and launch-command resolution live in ../utils/mcp-clients.js
+// so `gelada doctor` can read a registration back without importing this module,
+// which imports doctor itself. Re-exported here because that is where callers
+// have always found them.
+export { detectMcpClients, resolveServerLaunchCommand, stableNodePath } from '../utils/mcp-clients.js';
+export type { ClientDetectionResult } from '../utils/mcp-clients.js';
 
 export interface GeladaConfigSchema {
   version: string;
@@ -50,13 +58,6 @@ export const DEFAULT_GELADA_CONFIG: GeladaConfigSchema = {
     transport: 'stdio',
   },
 };
-
-export interface ClientDetectionResult {
-  clientType: 'claude-desktop' | 'claude-code' | 'codex';
-  name: string;
-  configPath: string;
-  exists: boolean;
-}
 
 export interface ClientConfigUpdateResult {
   clientName: string;
@@ -134,109 +135,6 @@ export interface SetupResult {
   detectedClients?: ClientDetectionResult[];
   clientUpdates?: ClientConfigUpdateResult[];
   error?: string;
-}
-
-/**
- * Resolves the command an MCP client should use to launch this server.
- *
- * The entrypoint is derived from this module's own location rather than from
- * process.argv[1]: setup can be invoked programmatically (tests, or an embedding
- * process), where argv[1] is some other script entirely and registering it would
- * point the client at the wrong program.
- *
- * An absolute node + script path is used rather than the bare `gelada` name so
- * the registration keeps working when PATH changes — notably under node version
- * managers, where the shim directory is version specific.
- */
-export function resolveServerLaunchCommand(): { command: string; args: string[] } {
-  // Compiled single-file binary: it is its own entrypoint.
-  if ((process as unknown as { pkg?: unknown }).pkg && process.execPath) {
-    return { command: process.execPath, args: ['mcp', 'serve'] };
-  }
-
-  const binPath = packagePath('bin', 'gelada.js');
-  if (fs.existsSync(binPath)) {
-    return { command: process.execPath, args: [binPath, 'mcp', 'serve'] };
-  }
-
-  return { command: 'gelada', args: ['mcp', 'serve'] };
-}
-
-export function detectMcpClients(customHome?: string): ClientDetectionResult[] {
-  const home = customHome || process.env.GELADA_HOME_DIR || os.homedir();
-  const platform = process.platform;
-  const candidates: { clientType: 'claude-desktop' | 'claude-code' | 'codex'; name: string; path: string }[] = [];
-
-  // 1. Claude Desktop
-  if (platform === 'darwin') {
-    candidates.push({
-      clientType: 'claude-desktop',
-      name: 'Claude Desktop (macOS)',
-      path: path.join(home, 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json'),
-    });
-  } else if (platform === 'win32') {
-    const appData = process.env.APPDATA || path.join(home, 'AppData', 'Roaming');
-    candidates.push({
-      clientType: 'claude-desktop',
-      name: 'Claude Desktop (Windows)',
-      path: path.join(appData, 'Claude', 'claude_desktop_config.json'),
-    });
-  } else {
-    candidates.push({
-      clientType: 'claude-desktop',
-      name: 'Claude Desktop (Linux)',
-      path: path.join(home, '.config', 'Claude', 'claude_desktop_config.json'),
-    });
-  }
-
-  // 2. Claude Code CLI
-  candidates.push({
-    clientType: 'claude-code',
-    name: 'Claude Code CLI (~/.claude.json)',
-    path: path.join(home, '.claude.json'),
-  });
-  candidates.push({
-    clientType: 'claude-code',
-    name: 'Claude Code CLI (~/.config/claude-code/config.json)',
-    path: path.join(home, '.config', 'claude-code', 'config.json'),
-  });
-
-  // 3. OpenAI Codex CLI / MCP
-  candidates.push({
-    clientType: 'codex',
-    name: 'Codex MCP (~/.codex/config.json)',
-    path: path.join(home, '.codex', 'config.json'),
-  });
-  candidates.push({
-    clientType: 'codex',
-    name: 'Codex MCP (~/.codex/mcp.json)',
-    path: path.join(home, '.codex', 'mcp.json'),
-  });
-  candidates.push({
-    clientType: 'codex',
-    name: 'Codex MCP (~/.config/codex/config.json)',
-    path: path.join(home, '.config', 'codex', 'config.json'),
-  });
-  candidates.push({
-    clientType: 'codex',
-    name: 'Codex MCP (~/.config/codex/mcp.json)',
-    path: path.join(home, '.config', 'codex', 'mcp.json'),
-  });
-  if (platform === 'win32') {
-    const appData = process.env.APPDATA || path.join(home, 'AppData', 'Roaming');
-    candidates.push({
-      clientType: 'codex',
-      name: 'Codex MCP (Windows AppData)',
-      path: path.join(appData, 'Codex', 'config.json'),
-    });
-  }
-
-  return candidates.map((c) => ({
-    clientType: c.clientType,
-    name: c.name,
-    configPath: c.path,
-    exists: fs.existsSync(c.path),
-  }));
 }
 
 export function updateClientConfigs(options: SetupOptions = {}): {

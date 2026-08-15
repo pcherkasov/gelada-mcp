@@ -187,8 +187,8 @@ Options:
 
 ### 2. `gelada doctor`
 Reports whether Gelada can actually run tasks: Node and Git versions, config
-directory permissions, and whether the worker CLI is installed and
-authenticated.
+directory permissions, whether the commands your MCP clients were registered
+with still exist, and whether the worker CLI is installed and authenticated.
 ```bash
 gelada doctor [options]
 
@@ -201,6 +201,25 @@ Options:
 A run that completed exits 0 even when it has bad news, so scripts can read the
 report; only Gelada's own prerequisites fail the command. Use `--strict` to gate
 on a fully clean environment.
+
+#### "Server transport closed unexpectedly" right after startup
+If a client logs a spawn failure — `Failed to spawn process: No such file or
+directory`, or a transport that closes milliseconds after connecting — the
+server was never started, so it has nothing to log. The command in the client's
+configuration no longer exists. The usual cause is an interpreter path that has
+since moved: Homebrew installs Node into a version-and-revision specific keg and
+deletes the old one on every upgrade, so a registration naming
+`/opt/homebrew/Cellar/node/25.9.0_2/bin/node` stops working the next time `brew
+upgrade` runs.
+
+`gelada doctor` names the broken registration, and `gelada setup` rewrites it:
+```bash
+gelada doctor            # MCP Client Registration: ... — not found
+gelada setup             # re-registers with a path that survives upgrades
+```
+For a client Gelada does not configure for you, set `command` to
+`/opt/homebrew/opt/node/bin/node` (Homebrew's stable link to the current
+version) rather than to a `Cellar` path.
 
 ### 3. `gelada mcp serve`
 Launches the stdio transport server for MCP host clients.

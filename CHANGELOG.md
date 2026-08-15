@@ -5,6 +5,38 @@ All notable changes to **Gelada MCP** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.4] - 2026-08-15
+
+### Fixed
+
+- **A registration could stop working on the next `brew upgrade`.** `gelada
+  setup` recorded `process.execPath` as the command for MCP clients to spawn.
+  That is an absolute path, which was the point — it survives PATH changes under
+  node version managers — but it is also a fully resolved one, and under Homebrew
+  it resolves into a version-and-revision specific keg:
+  `/opt/homebrew/Cellar/node/25.9.0_2/bin/node`. Homebrew deletes the old keg on
+  every upgrade, including the revision bumps it makes whenever a dependency is
+  rebuilt, so the recorded interpreter simply vanished.
+
+  The failure was silent in the worst way. The client spawns the command, gets
+  ENOENT, and reports only that the transport closed unexpectedly — the server
+  never ran, so no Gelada log, error or diagnostic existed to consult.
+
+  Setup now records `/opt/homebrew/opt/node/bin/node`, Homebrew's versionless
+  link to the current keg, whenever it resolves to the same binary. Paths that
+  are not kegs are left alone: under fnm, nvm and friends the versioned directory
+  *is* the installation, and the globally installed package lives under it, so
+  pinning it is correct.
+
+### Added
+
+- **`gelada doctor` reads the client registrations back.** A stale launch command
+  is the one failure the server cannot report, because it is why the server did
+  not start. Doctor now checks that every command Gelada is registered under
+  still exists, names the client and the file when one does not, and points at
+  `gelada setup` to rewrite it. Bare command names are reported but not judged —
+  the client resolves those from its own PATH, not ours.
+
 ## [0.1.3] - 2026-08-09
 
 ### Added
