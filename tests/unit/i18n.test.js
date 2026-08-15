@@ -79,19 +79,29 @@ describe('CLI localisation', () => {
   });
 
   describe('resolveLocale precedence', () => {
-    it('lets GELADA_LANG win over the environment', () => {
-      assert.equal(resolveLocale({ GELADA_LANG: 'pl', LANG: 'ru_RU.UTF-8' }), 'pl');
+    // Both inputs are required, so these assertions cannot quietly start
+    // reading the config of whoever runs the suite — which is how they used to
+    // pass everywhere except on a machine that had a language set.
+    const unset = undefined;
+
+    it('lets GELADA_LANG win over everything', () => {
+      assert.equal(resolveLocale({ GELADA_LANG: 'pl', LANG: 'ru_RU.UTF-8' }, unset), 'pl');
+      assert.equal(resolveLocale({ GELADA_LANG: 'pl', LANG: 'ru_RU.UTF-8' }, 'uk'), 'pl');
+    });
+
+    it('lets the configured language win over the environment', () => {
+      assert.equal(resolveLocale({ LANG: 'ru_RU.UTF-8' }, 'uk'), 'uk');
     });
 
     it('falls back through LC_ALL, LC_MESSAGES and LANG', () => {
-      assert.equal(resolveLocale({ LC_ALL: 'uk_UA.UTF-8' }), 'uk');
-      assert.equal(resolveLocale({ LC_MESSAGES: 'ru_RU.UTF-8' }), 'ru');
-      assert.equal(resolveLocale({ LANG: 'pl_PL.UTF-8' }), 'pl');
+      assert.equal(resolveLocale({ LC_ALL: 'uk_UA.UTF-8' }, unset), 'uk');
+      assert.equal(resolveLocale({ LC_MESSAGES: 'ru_RU.UTF-8' }, unset), 'ru');
+      assert.equal(resolveLocale({ LANG: 'pl_PL.UTF-8' }, unset), 'pl');
     });
 
     it('ends at English when nothing says otherwise', () => {
-      assert.equal(resolveLocale({}), 'en');
-      assert.equal(resolveLocale({ LANG: 'C' }), 'en');
+      assert.equal(resolveLocale({}, unset), 'en');
+      assert.equal(resolveLocale({ LANG: 'C' }, unset), 'en');
     });
   });
 
@@ -142,13 +152,22 @@ describe('CLI localisation', () => {
   });
 
   describe('end to end', () => {
+    // A fresh config dir per call: otherwise the fallback case reads whatever
+    // ui.language the developer happens to have set, and "unknown language
+    // falls back to English" quietly becomes "unknown language falls back to
+    // your language".
     async function doctorIn(locale) {
-      const { stdout } = await execFileAsync(
-        process.execPath,
-        [GELADA_BIN, 'doctor', '--no-worker'],
-        { env: { ...process.env, GELADA_LANG: locale } },
-      );
-      return stdout;
+      const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gelada-i18n-e2e-'));
+      try {
+        const { stdout } = await execFileAsync(
+          process.execPath,
+          [GELADA_BIN, 'doctor', '--no-worker'],
+          { env: { ...process.env, GELADA_LANG: locale, GELADA_CONFIG_DIR: configDir } },
+        );
+        return stdout;
+      } finally {
+        fs.rmSync(configDir, { recursive: true, force: true });
+      }
     }
 
     it('prints doctor in each language', async () => {

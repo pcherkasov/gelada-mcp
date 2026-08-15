@@ -50,11 +50,18 @@ export function readConfiguredLocale(configPath: string = getConfigPath()): Loca
  * durable choice. Then the environment, so a Russian, Ukrainian or Polish
  * desktop gets its own language without being told to configure anything. Then
  * English, which every message is guaranteed to have.
+ *
+ * Both inputs are required parameters, and the file read lives in the caller.
+ * Reading the config from inside a function that advertises `env` as its input
+ * made it look pure and behave otherwise: its test passed on any machine where
+ * ui.language happened to be unset and failed the moment somebody set one. A
+ * defaulted parameter would not have fixed that either — passing `undefined`
+ * explicitly is exactly what triggers a default.
  */
-export function resolveLocale(env: NodeJS.ProcessEnv = process.env): Locale {
+export function resolveLocale(env: NodeJS.ProcessEnv, configured: Locale | undefined): Locale {
   return (
     normalizeLocale(env.GELADA_LANG) ??
-    readConfiguredLocale() ??
+    configured ??
     normalizeLocale(env.LC_ALL) ??
     normalizeLocale(env.LC_MESSAGES) ??
     normalizeLocale(env.LANG) ??
@@ -65,7 +72,7 @@ export function resolveLocale(env: NodeJS.ProcessEnv = process.env): Locale {
 let cached: Locale | undefined;
 
 export function currentLocale(): Locale {
-  if (!cached) cached = resolveLocale();
+  if (!cached) cached = resolveLocale(process.env, readConfiguredLocale());
   return cached;
 }
 
