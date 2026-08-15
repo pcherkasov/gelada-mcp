@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Command } from 'commander';
 import { getWorkspaceArtifactDir } from '../utils/paths.js';
+import { t } from '../utils/i18n.js';
 
 export interface TaskInspectOptions {
   json?: boolean;
@@ -23,12 +24,12 @@ export interface TaskDiscardOptions {
 export function registerTaskCommands(program: Command): void {
   const taskGroup = program
     .command('task')
-    .description('Inspect, patch, or discard delegated tasks');
+    .description(t('cli.cmd.task'));
 
   // 1. task inspect <id>
   taskGroup
     .command('inspect <id>')
-    .description('Inspect metadata, status, diffs, or logs of a delegated task')
+    .description(t('cli.cmd.taskInspect'))
     .option('--json', 'Output result as JSON')
     .option('-v, --verbose', 'Include verbose task log paths')
     .option(
@@ -91,7 +92,7 @@ export function registerTaskCommands(program: Command): void {
   // 2. task patch <id>
   taskGroup
     .command('patch <id>')
-    .description('Apply a revision or patch file to an active task')
+    .description(t('cli.cmd.taskPatch'))
     .option('-f, --file <patchFile>', 'Path to git patch file')
     .option('-m, --message <instructions>', 'Revision instruction string')
     .option('--json', 'Output result as JSON')
@@ -136,7 +137,7 @@ export function registerTaskCommands(program: Command): void {
   // 3. task discard <id>
   taskGroup
     .command('discard <id>')
-    .description('Cancel a running task, terminate supervisors, and discard worktree changes')
+    .description(t('cli.cmd.taskDiscard'))
     .option('-f, --force', 'Force cleanup without confirmation or grace period')
     .option('--json', 'Output result as JSON')
     .action(async (id: string, options: TaskDiscardOptions) => {

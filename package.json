@@ -1,6 +1,6 @@
 {
   "name": "gelada-mcp",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Local open-source MCP server delegating routine coding tasks to local worker agents",
   "type": "module",
   "main": "dist/index.js",
@@ -34,7 +34,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/**/*.ts",
     "format": "prettier --write \"src/**/*.ts\"",
-    "test": "node --test tests/*.test.js tests/**/*.test.js",
+    "test": "GELADA_LANG=en node --test tests/*.test.js tests/**/*.test.js",
     "prepare": "npm run build",
     "build:bundle": "node -e \"import('./scripts/build-binary.js').then(m => m.bundle())\"",
     "build:binaries": "node scripts/build-binary.js"

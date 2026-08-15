@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { Updater } from '../utils/updater.js';
 import { packageVersion } from '../../utils/package-paths.js';
+import { t } from '../utils/i18n.js';
 
 export interface UpdateCommandOptions {
   json?: boolean;
@@ -10,9 +11,9 @@ export interface UpdateCommandOptions {
 export function registerUpdateCommand(program: Command): void {
   program
     .command('update')
-    .description('Check for Gelada MCP server updates and optionally install them')
-    .option('--json', 'Output update information in JSON format')
-    .option('--install', 'Install the latest update if available')
+    .description(t('cli.cmd.update'))
+    .option('--json', t('opt.json'))
+    .option('--install', t('update.opt.install'))
     .action(async (options: UpdateCommandOptions) => {
       // This used to resolve package.json through `__dirname`, which does not
       // exist in ESM — so the lookup always threw and the update check silently
@@ -32,8 +33,8 @@ export function registerUpdateCommand(program: Command): void {
         if (options.json) {
           console.log(JSON.stringify({ currentVersion, checked: false, error: message }, null, 2));
         } else {
-          console.error(`Could not check for updates: ${message}`);
-          console.error(`Current version: v${currentVersion}`);
+          console.error(t('update.checkFailed', { error: message }));
+          console.error(t('update.currentOnly', { version: currentVersion }));
         }
         process.exitCode = 1;
         return;
@@ -42,19 +43,23 @@ export function registerUpdateCommand(program: Command): void {
       if (options.json) {
         console.log(JSON.stringify({ ...updateInfo, checked: true }, null, 2));
       } else {
-        console.log('=== Gelada Update Status ===');
-        console.log(`Current version: v${updateInfo.currentVersion}`);
-        console.log(`Latest version:  v${updateInfo.latestVersion}`);
-        console.log(`Status:          ${updateInfo.upToDate ? 'Up to date' : 'Update available'}\n`);
+        console.log(t('update.title'));
+        console.log(t('update.current', { version: updateInfo.currentVersion }));
+        console.log(t('update.latest', { version: updateInfo.latestVersion }));
+        console.log(
+          `${t('update.status', {
+            status: updateInfo.upToDate ? t('update.upToDate') : t('update.available'),
+          })}\n`,
+        );
       }
 
       if (updateInfo.upToDate) return;
 
       if (!options.install) {
         if (!options.json) {
-          console.log('Run `gelada update --install` to upgrade, or do it yourself with:');
+          console.log(t('update.howTo'));
           console.log(`  ${updater.manualInstructions(updateInfo)}`);
-          console.log(`\nRelease notes: ${updateInfo.releaseUrl}`);
+          console.log(`\n${t('update.releaseNotes', { url: updateInfo.releaseUrl })}`);
         }
         return;
       }
@@ -63,7 +68,7 @@ export function registerUpdateCommand(program: Command): void {
         await updater.installUpdate(updateInfo);
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error);
-        console.error(`Update failed: ${message}`);
+        console.error(t('update.failed', { error: message }));
         process.exitCode = 1;
       }
     });

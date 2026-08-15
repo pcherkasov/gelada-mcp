@@ -1,5 +1,6 @@
 import { Command } from 'commander';
 import { packageVersion } from '../utils/package-paths.js';
+import { t } from './utils/i18n.js';
 import { registerSetupCommand } from './commands/setup.js';
 import { registerDoctorCommand } from './commands/doctor.js';
 import { registerConfigCommand } from './commands/config.js';
@@ -17,9 +18,7 @@ export function createCliProgram(): Command {
 
   program
     .name('gelada')
-    .description(
-      'Local open-source MCP server delegating routine coding tasks to local worker agents',
-    )
+    .description(t('cli.description'))
     .version(packageVersion());
 
   registerSetupCommand(program);
@@ -57,7 +56,7 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
     // has always worked and still does, but the explicit form is what setup
     // writes and what the README documents, so say so where clients surface it.
     console.error(
-      'gelada: starting the MCP server from a bare invocation. Configure the client with args ["mcp", "serve"] instead.',
+      t('cli.bareInvocation'),
     );
     await runMcpServe();
     return;

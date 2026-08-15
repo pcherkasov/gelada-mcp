@@ -316,6 +316,26 @@ A check that could not run exits non-zero and says so. It is never reported as
 "up to date" — that reads as good news and is acted on by doing nothing, which
 is the wrong move when the truth is unknown.
 
+### 9. Interface language
+The CLI speaks English, Russian, Ukrainian and Polish. It follows your
+environment by default, so a `ru_RU.UTF-8` desktop needs no configuration:
+```bash
+gelada config set ui.language ru     # pin it: en | ru | uk | pl
+gelada config set ui.language ''     # back to following the environment
+GELADA_LANG=en gelada doctor         # one command in English, for pasting into an issue
+```
+Precedence is `GELADA_LANG` → `ui.language` → `LC_ALL` / `LC_MESSAGES` / `LANG` →
+English. An unsupported value in `ui.language` is rejected when you set it
+rather than silently ignored.
+
+Only the CLI is translated. Tool descriptions, the server instructions and the
+guidance under `docs/instructions/` stay in English in every language, because
+they are read by the model rather than by you — a second copy of tuned prompt
+text drifting from the first is not a cosmetic difference but a silent change in
+how delegation behaves. The language your agent replies to *you* in is decided
+by the agent, not by this setting, and the `objective` you delegate is passed to
+the worker verbatim in whatever language you wrote it.
+
 ### MCP resources and prompts
 
 Beyond tools, the server exposes the leader-agent guidance in

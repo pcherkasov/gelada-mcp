@@ -9,6 +9,7 @@ import { getConfigDir, getDataDir, getLogDir } from '../utils/paths.js';
 import { packageVersion } from '../../utils/package-paths.js';
 import { loadWorkerModelCatalog } from '../../components/model-catalog.js';
 import { inspectRegisteredLaunchers } from '../utils/mcp-clients.js';
+import { t } from '../utils/i18n.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -80,13 +81,19 @@ function checkNode(): DiagnosticCheck {
   const ok = Number.isFinite(major) && major >= MIN_NODE_MAJOR;
   return {
     category: 'node',
-    name: 'Node.js Version',
+    name: t('doctor.node.name'),
     status: ok ? 'pass' : 'fail',
     message: ok
-      ? `Node.js ${process.version}`
-      : `Node.js ${process.version} is below the required v${MIN_NODE_MAJOR}`,
-    details: [`Platform: ${os.platform()} ${os.release()} (${os.arch()})`],
-    remediation: ok ? undefined : `Install Node.js v${MIN_NODE_MAJOR} or newer.`,
+      ? t('doctor.node.ok', { version: process.version })
+      : t('doctor.node.tooOld', { version: process.version, required: MIN_NODE_MAJOR }),
+    details: [
+      t('doctor.node.platform', {
+        platform: os.platform(),
+        release: os.release(),
+        arch: os.arch(),
+      }),
+    ],
+    remediation: ok ? undefined : t('doctor.node.fix', { required: MIN_NODE_MAJOR }),
   };
 }
 
@@ -96,18 +103,18 @@ async function checkGit(): Promise<DiagnosticCheck> {
     const version = stdout.toString().trim();
     return {
       category: 'git',
-      name: 'Git CLI',
+      name: t('doctor.git.name'),
       status: 'pass',
       message: version,
-      details: ['Required for isolated worktrees (git worktree).'],
+      details: [t('doctor.git.detail')],
     };
   } catch {
     return {
       category: 'git',
-      name: 'Git CLI',
+      name: t('doctor.git.name'),
       status: 'fail',
-      message: 'git was not found in PATH',
-      remediation: 'Install Git 2.30 or newer; Gelada isolates every task in a git worktree.',
+      message: t('doctor.git.missing'),
+      remediation: t('doctor.git.fix'),
     };
   }
 }
@@ -115,19 +122,19 @@ async function checkGit(): Promise<DiagnosticCheck> {
 function checkConfig(): DiagnosticCheck {
   const configDir = getConfigDir();
   const details = [
-    `Config directory: ${configDir}`,
-    `Data directory:   ${getDataDir()}`,
-    `Log directory:    ${getLogDir()}`,
+    t('doctor.config.dirs', { config: configDir }),
+    t('doctor.config.dataDir', { data: getDataDir() }),
+    t('doctor.config.logDir', { log: getLogDir() }),
   ];
 
   if (!fs.existsSync(configDir)) {
     return {
       category: 'config',
-      name: 'Config Directory',
+      name: t('doctor.config.name'),
       status: 'warn',
-      message: `Not created yet: ${configDir}`,
+      message: t('doctor.config.missing', { path: configDir }),
       details,
-      remediation: 'Run "gelada setup" to scaffold configuration.',
+      remediation: t('doctor.config.fixSetup'),
     };
   }
 
@@ -136,17 +143,17 @@ function checkConfig(): DiagnosticCheck {
   } catch {
     return {
       category: 'config',
-      name: 'Config Directory',
+      name: t('doctor.config.name'),
       status: 'fail',
-      message: `Not readable/writable: ${configDir}`,
+      message: t('doctor.config.unwritable', { path: configDir }),
       details,
-      remediation: `Fix permissions on ${configDir}.`,
+      remediation: t('doctor.config.fixPermissions', { path: configDir }),
     };
   }
 
   return {
     category: 'config',
-    name: 'Config Directory',
+    name: t('doctor.config.name'),
     status: 'pass',
     message: configDir,
     details,
@@ -174,20 +181,22 @@ function checkClientRegistrations(): DiagnosticCheck {
   } catch (err: unknown) {
     return {
       category: 'config',
-      name: 'MCP Client Registration',
+      name: t('doctor.registration.name'),
       status: 'warn',
-      message: `Could not read client configurations: ${err instanceof Error ? err.message : String(err)}`,
+      message: t('doctor.registration.unreadable', {
+        error: err instanceof Error ? err.message : String(err),
+      }),
     };
   }
 
   if (launchers.length === 0) {
     return {
       category: 'config',
-      name: 'MCP Client Registration',
+      name: t('doctor.registration.name'),
       status: 'warn',
-      message: 'No detected MCP client has Gelada registered',
-      details: ['Clients configured by hand, or ones Gelada does not detect, are not visible here.'],
-      remediation: 'Run "gelada setup" to register Gelada with the clients on this machine.',
+      message: t('doctor.registration.none'),
+      details: [t('doctor.registration.noneDetail')],
+      remediation: t('doctor.registration.noneFix'),
     };
   }
 
@@ -195,25 +204,34 @@ function checkClientRegistrations(): DiagnosticCheck {
   if (broken.length > 0) {
     return {
       category: 'config',
-      name: 'MCP Client Registration',
+      name: t('doctor.registration.name'),
       status: 'fail',
       message:
         broken.length === launchers.length
-          ? `Registered launch command no longer exists (${broken.length} client${broken.length > 1 ? 's' : ''})`
-          : `${broken.length} of ${launchers.length} registrations point at a command that no longer exists`,
-      details: broken.map((l) => `${l.clientName}: ${l.command} — not found (${l.configPath})`),
-      remediation: 'Run "gelada setup" to re-register with the current interpreter path.',
+          ? t('doctor.registration.allBroken', { count: broken.length })
+          : t('doctor.registration.someBroken', {
+              broken: broken.length,
+              total: launchers.length,
+            }),
+      details: broken.map((l) =>
+        t('doctor.registration.brokenDetail', {
+          client: l.clientName,
+          command: l.command,
+          path: l.configPath,
+        }),
+      ),
+      remediation: t('doctor.registration.brokenFix'),
     };
   }
 
   return {
     category: 'config',
-    name: 'MCP Client Registration',
+    name: t('doctor.registration.name'),
     status: 'pass',
     message:
       launchers.length === 1
-        ? '1 client registration resolves'
-        : `${launchers.length} client registrations resolve`,
+        ? t('doctor.registration.okOne')
+        : t('doctor.registration.okMany', { count: launchers.length }),
     details: launchers.map((l) => `${l.clientName}: ${l.command}`),
   };
 }
@@ -228,19 +246,22 @@ async function checkWorker(): Promise<DiagnosticCheck[]> {
     version = stdout.toString().trim();
     checks.push({
       category: 'worker',
-      name: 'Worker CLI',
+      name: t('doctor.worker.name'),
       status: 'pass',
       message: `${command} ${version}`,
-      details: [`Resolved from ${process.env.AGY_COMMAND ? 'AGY_COMMAND' : 'PATH'}.`],
+      details: [
+        t('doctor.worker.resolvedFrom', {
+          source: process.env.AGY_COMMAND ? 'AGY_COMMAND' : 'PATH',
+        }),
+      ],
     });
   } catch {
     checks.push({
       category: 'worker',
-      name: 'Worker CLI',
+      name: t('doctor.worker.name'),
       status: 'fail',
-      message: `${command} was not found or failed to run`,
-      remediation:
-        'Install the Antigravity CLI and make sure it is in PATH, or point AGY_COMMAND at it.',
+      message: t('doctor.worker.missing', { command }),
+      remediation: t('doctor.worker.fix'),
     });
     return checks;
   }
@@ -250,19 +271,19 @@ async function checkWorker(): Promise<DiagnosticCheck[]> {
   if (catalog.source === 'cli') {
     checks.push({
       category: 'worker',
-      name: 'Worker Authentication',
+      name: t('doctor.auth.name'),
       status: 'pass',
-      message: `${catalog.models.length} models available`,
+      message: t('doctor.auth.ok', { count: catalog.models.length }),
       details: catalog.models.map((m) => `${m.id} — ${m.label}`),
     });
   } else {
     checks.push({
       category: 'worker',
-      name: 'Worker Authentication',
+      name: t('doctor.auth.name'),
       status: 'warn',
-      message: 'Could not read the model list from the worker CLI',
+      message: t('doctor.auth.unknown'),
       details: catalog.warning ? [catalog.warning] : undefined,
-      remediation: `Run "${command}" once in a terminal and sign in, then re-run "gelada doctor".`,
+      remediation: t('doctor.auth.fix', { command }),
     });
   }
 
@@ -325,11 +346,11 @@ export function doctorExitCode(report: DiagnosticReport, strict = false): number
 export function registerDoctorCommand(program: Command): void {
   program
     .command('doctor')
-    .description('Check that Gelada, Git and the worker CLI are ready to run tasks')
-    .option('--json', 'Output the diagnostic report as JSON')
-    .option('-v, --verbose', 'Include per-check details')
-    .option('--no-worker', 'Skip worker CLI checks')
-    .option('--strict', 'Exit non-zero if any check does not pass')
+    .description(t('cli.cmd.doctor'))
+    .option('--json', t('opt.json'))
+    .option('-v, --verbose', t('opt.verbose'))
+    .option('--no-worker', t('doctor.opt.noWorker'))
+    .option('--strict', t('doctor.opt.strict'))
     .action(async (options: DoctorCommandOptions) => {
       const report = await runDiagnostics({ checkWorker: options.worker });
 
@@ -339,11 +360,11 @@ export function registerDoctorCommand(program: Command): void {
         return;
       }
 
-      console.log('=== Gelada Diagnostic Check ===\n');
+      console.log(`${t('doctor.title')}\n`);
       for (const check of report.checks) {
         console.log(`${STATUS_MARK[check.status]} ${check.name}: ${check.message}`);
         if (options.verbose && check.details?.length) {
-          console.log('       Details:');
+          console.log(t('doctor.details'));
           for (const detail of check.details) {
             console.log(`         - ${detail}`);
           }
@@ -353,11 +374,17 @@ export function registerDoctorCommand(program: Command): void {
         }
       }
 
-      console.log(`\nSystem Status: ${report.overallStatus.toUpperCase()}`);
+      console.log(`\n${t('doctor.status', { status: report.overallStatus.toUpperCase() })}`);
       if (report.overallStatus !== 'ok') {
-        console.log('Run "gelada setup" to fix configuration, or address the items above.');
+        console.log(t('doctor.statusHint'));
       }
-      console.log(`\nGelada ${report.geladaVersion} · ${path.basename(process.execPath)} ${report.nodeVersion}`);
+      console.log(
+        `\n${t('doctor.footer', {
+          version: report.geladaVersion,
+          runtime: path.basename(process.execPath),
+          nodeVersion: report.nodeVersion,
+        })}`,
+      );
 
       process.exitCode = doctorExitCode(report, options.strict);
     });
