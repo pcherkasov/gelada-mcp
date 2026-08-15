@@ -20,38 +20,51 @@ export function registerUpdateCommand(program: Command): void {
       const currentVersion = packageVersion();
 
       const updater = new Updater(currentVersion);
-      
+
+      let updateInfo;
       try {
-        const updateInfo = await updater.checkForUpdates();
-
+        updateInfo = await updater.checkForUpdates();
+      } catch (error: unknown) {
+        // A check that could not run is reported as a failure, never as good
+        // news. Answering "up to date" here is the one answer a user acts on by
+        // doing nothing, which is exactly wrong when the truth is unknown.
+        const message = error instanceof Error ? error.message : String(error);
         if (options.json) {
-          console.log(JSON.stringify(updateInfo, null, 2));
-          if (options.install && !updateInfo.upToDate) {
-            await updater.installUpdate(updateInfo);
-          }
-          return;
+          console.log(JSON.stringify({ currentVersion, checked: false, error: message }, null, 2));
+        } else {
+          console.error(`Could not check for updates: ${message}`);
+          console.error(`Current version: v${currentVersion}`);
         }
+        process.exitCode = 1;
+        return;
+      }
 
+      if (options.json) {
+        console.log(JSON.stringify({ ...updateInfo, checked: true }, null, 2));
+      } else {
         console.log('=== Gelada Update Status ===');
         console.log(`Current version: v${updateInfo.currentVersion}`);
         console.log(`Latest version:  v${updateInfo.latestVersion}`);
         console.log(`Status:          ${updateInfo.upToDate ? 'Up to date' : 'Update available'}\n`);
-        
-        if (!updateInfo.upToDate) {
-          if (options.install) {
-            await updater.installUpdate(updateInfo);
-          } else {
-            console.log('Run `gelada update --install` to upgrade to the latest version.');
-            console.log(`Or view release notes at: ${updateInfo.releaseUrl}`);
-          }
+      }
+
+      if (updateInfo.upToDate) return;
+
+      if (!options.install) {
+        if (!options.json) {
+          console.log('Run `gelada update --install` to upgrade, or do it yourself with:');
+          console.log(`  ${updater.manualInstructions(updateInfo)}`);
+          console.log(`\nRelease notes: ${updateInfo.releaseUrl}`);
         }
-      } catch (error: any) {
-        if (options.json) {
-          console.error(JSON.stringify({ error: error.message }));
-        } else {
-          console.error(`Update failed: ${error.message}`);
-        }
-        process.exit(1);
+        return;
+      }
+
+      try {
+        await updater.installUpdate(updateInfo);
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`Update failed: ${message}`);
+        process.exitCode = 1;
       }
     });
 }

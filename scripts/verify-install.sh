@@ -128,10 +128,36 @@ check "default (GELADA_VERSION unset)" ""
 check "GELADA_VERSION=v${VERSION}" "v${VERSION}"
 check "GELADA_VERSION=${VERSION}" "${VERSION}"
 
+# Installing over an existing binary is not a special case for a user, but it is
+# the only case `gelada update` ever performs: it replaces the binary it is
+# running from. It lands by rename for that reason, so check that the rename
+# happened and left nothing staged behind.
+echo ""
+echo "=== install.sh: over an existing install ==="
+over_dir="${WORK}/case-reinstall"
+if GELADA_VERSION="$VERSION" INSTALL_DIR="$over_dir" bash "$INSTALLER" >/dev/null &&
+  GELADA_VERSION="$VERSION" INSTALL_DIR="$over_dir" bash "$INSTALLER" >/dev/null; then
+  over_actual="$("${over_dir}/gelada" --version 2>&1)"
+  leftovers="$(find "$over_dir" -name '.gelada.new.*' 2>/dev/null | wc -l | tr -d ' ')"
+
+  if [ "$over_actual" != "$VERSION" ]; then
+    fail "reinstall: binary reports '${over_actual}', expected '${VERSION}'"
+    failures=$((failures + 1))
+  elif [ "$leftovers" != "0" ]; then
+    fail "reinstall: left ${leftovers} staging file(s) behind in ${over_dir}"
+    failures=$((failures + 1))
+  else
+    echo "ok: reinstall over an existing binary produced ${over_actual}"
+  fi
+else
+  fail "reinstall: install.sh failed running twice into one directory"
+  failures=$((failures + 1))
+fi
+
 echo ""
 if [ "$failures" -ne 0 ]; then
   fail "${failures} install.sh case(s) failed for v${VERSION} on $(uname -s)/$(uname -m)"
   exit 1
 fi
 
-echo "install.sh verified on $(uname -s)/$(uname -m): all 3 cases installed ${VERSION}"
+echo "install.sh verified on $(uname -s)/$(uname -m): every case installed ${VERSION}"

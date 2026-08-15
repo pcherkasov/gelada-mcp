@@ -189,6 +189,7 @@ Commands:
   config <subcommand>      Manage Gelada configuration settings (list, get, set, reset)
   task <subcommand>        Inspect, patch, or discard delegated task lifecycles
   cleanup                  Clean up obsolete task artifact bundles based on retention policies
+  update                   Check for a newer release and optionally install it
 ```
 
 ### 1. `gelada setup`
@@ -301,6 +302,19 @@ Options:
   --max-disk-size <size>    Override maximum total artifact disk space (e.g. "100MB", "1GB")
   --json                    Output cleanup summary as JSON
 ```
+
+### 8. `gelada update`
+Compares the installed version against the latest GitHub release, and upgrades
+in the way this copy was installed: `npm install -g gelada-mcp@latest` for a
+package install, and `install.sh` for a standalone binary.
+```bash
+gelada update              # report only
+gelada update --install    # report, then upgrade if there is anything to install
+gelada update --json       # machine-readable, including a failed check
+```
+A check that could not run exits non-zero and says so. It is never reported as
+"up to date" — that reads as good news and is acted on by doing nothing, which
+is the wrong move when the truth is unknown.
 
 ### MCP resources and prompts
 
