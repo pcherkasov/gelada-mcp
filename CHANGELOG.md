@@ -28,6 +28,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   *is* the installation, and the globally installed package lives under it, so
   pinning it is correct.
 
+- **`install.sh` could never download anything.** It built the archive name from
+  `$TAG`, which defaults to the literal string `latest`, and asked for
+  `gelada-latest-darwin-arm64.tar.gz`. Release assets are named after the real
+  tag, so every default run 404'd. `latest` is now resolved to a version first,
+  by reading where GitHub's `/releases/latest` redirects — no API quota spent —
+  and `GELADA_VERSION` accepts `0.1.3` as well as `v0.1.3`.
+
 ### Added
 
 - **`gelada doctor` reads the client registrations back.** A stale launch command
