@@ -8,6 +8,7 @@ import { getConfigDir, getConfigPath, getDataDir, getLogDir } from '../utils/pat
 import { runDiagnostics } from './doctor.js';
 import { runSmokeTest } from './smoke.js';
 import { detectMcpClients, resolveServerLaunchCommand } from '../utils/mcp-clients.js';
+import { t } from '../utils/i18n.js';
 import type { ClientDetectionResult } from '../utils/mcp-clients.js';
 
 // Client discovery and launch-command resolution live in ../utils/mcp-clients.js
@@ -36,6 +37,10 @@ export interface GeladaConfigSchema {
   server: {
     transport: 'stdio';
   };
+  ui: {
+    /** Empty means "follow the environment"; see cli/utils/i18n.ts. */
+    language: string;
+  };
 }
 
 export const DEFAULT_GELADA_CONFIG: GeladaConfigSchema = {
@@ -56,6 +61,9 @@ export const DEFAULT_GELADA_CONFIG: GeladaConfigSchema = {
   },
   server: {
     transport: 'stdio',
+  },
+  ui: {
+    language: '',
   },
 };
 
@@ -89,34 +97,25 @@ export interface SetupOptions {
  * discover in SECURITY.md later.
  */
 async function confirmWorkerPermissions(assumeYes: boolean): Promise<boolean> {
+  const heading = t('setup.permissions.heading');
   const explanation = [
     '',
-    'Worker permissions',
-    '------------------',
-    'The Antigravity CLI cannot ask for tool approval when it runs headlessly,',
-    'and it ignores its own allow-rules in that mode. Gelada therefore starts it',
-    'with permission prompts disabled — without that, the worker cannot write a',
-    'single file.',
-    '',
-    'What limits it instead: the worker only ever sees a disposable git worktree,',
-    'its environment is stripped of credentials, and terminal commands are',
-    'sandboxed. Your working tree is never exposed.',
-    '',
-    'You can switch this off per project with workerAutoApprove: false in',
-    '.gelada/policy.yaml — delegation then stops working. See SECURITY.md §4.',
+    heading,
+    '-'.repeat(heading.length),
+    t('setup.permissions.body'),
     '',
   ].join('\n');
 
   console.log(explanation);
 
   if (assumeYes || !process.stdin.isTTY) {
-    console.log('Proceeding with worker permissions enabled (non-interactive).');
+    console.log(t('setup.permissions.nonInteractive'));
     return true;
   }
 
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   try {
-    const answer = (await rl.question('Continue with worker permissions enabled? [Y/n] ')).trim();
+    const answer = (await rl.question(t('setup.permissions.prompt'))).trim();
     return answer === '' || /^y(es)?$/i.test(answer);
   } finally {
     rl.close();
@@ -371,17 +370,14 @@ export async function runSetup(options: SetupOptions = {}): Promise<SetupResult>
 export function registerSetupCommand(program: Command): void {
   program
     .command('setup')
-    .description('Scaffold Gelada MCP configuration directory, data paths, and default config file')
+    .description(t('cli.cmd.setup'))
     .option('-f, --force', 'Overwrite existing configuration file with default settings')
     .option('--config-dir <path>', 'Custom target directory for setup')
     .option('--json', 'Output setup results in JSON format')
     .option('-q, --quiet', 'Suppress stdout messages')
     .option('--uninstall', 'Remove gelada-mcp server from detected client configuration files')
     .option('--remove', 'Alias for --uninstall')
-    .option(
-      '--client <name>',
-      'Target specific client configuration (claude, codex, antigravity, or all)',
-    )
+    .option('--client <name>', t('setup.opt.client'))
     .option('--no-smoke', 'Skip the end-to-end delegation check')
     .option('-y, --yes', 'Accept the worker permission default without prompting')
     .option('--strict', 'Exit non-zero if the environment is not ready to delegate')
@@ -399,9 +395,9 @@ export function registerSetupCommand(program: Command): void {
         if (!options.quiet) {
           const isUninstall = isUninstallRun;
           if (isUninstall) {
-            console.log('🗑️ Gelada MCP Client Uninstallation Completed');
+            console.log(t('setup.uninstalled'));
           } else {
-            console.log('✅ Gelada MCP Environment Setup Completed');
+            console.log(t('setup.completed'));
           }
           console.log(`   Config Directory: ${result.configDir}`);
           console.log(
@@ -411,7 +407,7 @@ export function registerSetupCommand(program: Command): void {
           console.log(`   Log Directory:    ${result.logDir}`);
 
           if (result.clientUpdates && result.clientUpdates.length > 0) {
-            console.log('   Client Updates:');
+            console.log(t('setup.clientUpdates'));
             for (const update of result.clientUpdates) {
               console.log(
                 `     - ${update.clientName}: ${update.action.toUpperCase()} (${update.configPath})`,
@@ -429,12 +425,12 @@ export function registerSetupCommand(program: Command): void {
         const report = await runDiagnostics();
         const blocking = report.checks.filter((c) => c.status === 'fail');
         if (blocking.length > 0) {
-          console.log('\nSetup finished, but delegation is not ready yet:');
+          console.log(t('setup.notReady'));
           for (const check of blocking) {
-            console.log(`   [fail] ${check.name}: ${check.message}`);
-            if (check.remediation) console.log(`          → ${check.remediation}`);
+            console.log(t('setup.checkFailed', { name: check.name, message: check.message }));
+            if (check.remediation) console.log(t('setup.checkFix', { remediation: check.remediation }));
           }
-          console.log('\nFix the above, then run "gelada smoke" to confirm.');
+          console.log(t('setup.fixThenSmoke'));
           if (options.strict) process.exitCode = 1;
           return;
         }
@@ -448,11 +444,11 @@ export function registerSetupCommand(program: Command): void {
         }
 
         if (options.smoke === false) {
-          console.log('\nSkipped the delegation check. Run "gelada smoke" when you want it.');
+          console.log(t('setup.skippedSmoke'));
           return;
         }
 
-        console.log('\nVerifying delegation end to end...');
+        console.log(t('setup.verifying'));
         const smoke = await runSmokeTest();
         if (smoke.ok) {
           console.log(

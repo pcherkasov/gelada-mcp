@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { GeladaServer } from '../../server.js';
+import { t } from '../utils/i18n.js';
 
 export async function runMcpServe(): Promise<void> {
   const transport = new StdioServerTransport();
@@ -33,11 +34,11 @@ export async function runMcpServe(): Promise<void> {
 export function registerMcpCommands(program: Command): void {
   const mcpGroup = program
     .command('mcp')
-    .description('Manage and launch Gelada MCP server instance');
+    .description(t('cli.cmd.mcp'));
 
   mcpGroup
     .command('serve')
-    .description('Start Gelada MCP server using stdio transport')
+    .description(t('cli.cmd.mcpServe'))
     .action(async () => {
       await runMcpServe();
     });

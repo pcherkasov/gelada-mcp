@@ -3,6 +3,7 @@ import path from 'node:path';
 import { Command } from 'commander';
 import { getConfigPath } from '../utils/paths.js';
 import { DEFAULT_GELADA_CONFIG, GeladaConfigSchema } from './setup.js';
+import { normalizeLocale, SUPPORTED_LOCALES, t } from '../utils/i18n.js';
 
 export interface ReadConfigResult {
   config: GeladaConfigSchema;
@@ -122,7 +123,7 @@ export function writeConfig(config: Record<string, unknown>, customPath?: string
 export function registerConfigCommand(program: Command): void {
   const configCmd = program
     .command('config')
-    .description('Inspect, read, or set Gelada MCP configuration settings');
+    .description(t('cli.cmd.config'));
 
   configCmd
     .command('list', { isDefault: true })
@@ -181,6 +182,19 @@ export function registerConfigCommand(program: Command): void {
         console.error(`❌ ${res.error}`);
         console.error(
           `Hint: Fix syntax error or run 'gelada setup --force' before modifying settings.`,
+        );
+        process.exit(1);
+      }
+
+      // The one key worth checking: a typo here is silent otherwise, since an
+      // unknown language simply falls back to English and looks like the
+      // setting was ignored.
+      if (key === 'ui.language' && value !== '' && !normalizeLocale(value)) {
+        console.error(
+          `❌ ${t('config.language.invalid', {
+            value,
+            supported: SUPPORTED_LOCALES.join(', '),
+          })}`,
         );
         process.exit(1);
       }

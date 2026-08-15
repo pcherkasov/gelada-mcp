@@ -2,6 +2,7 @@ import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { execFile } from 'child_process';
+import { t } from './i18n.js';
 import { promisify } from 'util';
 
 const execFileAsync = promisify(execFile);
@@ -139,7 +140,7 @@ export class Updater {
   public async installUpdate(info: UpdateInfo): Promise<void> {
     if (info.upToDate) return;
 
-    console.log(`Updating from v${info.currentVersion} to v${info.latestVersion}...`);
+    console.log(t('update.starting', { from: info.currentVersion, to: info.latestVersion }));
 
     if (detectInstallKind() === 'npm') {
       await this.installViaNpm();
@@ -150,7 +151,7 @@ export class Updater {
   }
 
   private async installViaNpm(): Promise<void> {
-    console.log('npm installation detected. Running npm install -g gelada-mcp@latest...');
+    console.log(t('update.viaNpm'));
     try {
       const { stdout, stderr } = await execFileAsync('npm', [
         'install',
@@ -159,7 +160,7 @@ export class Updater {
       ]);
       if (stdout) console.log(stdout);
       if (stderr) console.error(stderr);
-      console.log('Update completed via npm.');
+      console.log(t('update.npmDone'));
     } catch (err: unknown) {
       throw new Error(
         `Failed to update via npm: ${err instanceof Error ? err.message : String(err)}`,
@@ -206,7 +207,7 @@ export class Updater {
       }
       await fs.writeFile(installer, Buffer.from(await res.arrayBuffer()));
 
-      console.log(`Installing v${info.latestVersion} into ${installDir}...`);
+      console.log(t('update.installing', { version: info.latestVersion, dir: installDir }));
       const { stdout, stderr } = await execFileAsync('bash', [installer], {
         env: {
           ...process.env,
@@ -217,7 +218,7 @@ export class Updater {
       if (stdout) console.log(stdout);
       if (stderr) console.error(stderr);
 
-      console.log(`Update completed. ${target} is now v${info.latestVersion}.`);
+      console.log(t('update.done', { path: target, version: info.latestVersion }));
     } catch (err: unknown) {
       throw new Error(
         `Failed to update the standalone binary: ${err instanceof Error ? err.message : String(err)}. ` +

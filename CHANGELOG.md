@@ -5,6 +5,32 @@ All notable changes to **Gelada MCP** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.8] - 2026-08-15
+
+### Added
+
+- **The CLI speaks Russian, Ukrainian and Polish.** It follows the environment by
+  default — `LANG=ru_RU.UTF-8` needs no configuration — and can be pinned with
+  `gelada config set ui.language ru` or overridden for a single command with
+  `GELADA_LANG=en`, which is what you want when pasting output into an issue.
+  Precedence is `GELADA_LANG` → `ui.language` → `LC_ALL` / `LC_MESSAGES` /
+  `LANG` → English. An unsupported `ui.language` is rejected as you set it,
+  rather than silently falling back and looking like the setting was ignored.
+
+  The catalogues are typed as complete records of the English key set, so a
+  missing message is a build error rather than a blank line at runtime, and
+  tests assert that every translation keeps the placeholders its English
+  original uses — a dropped `{path}` loses exactly the information the reader
+  needed.
+
+  Deliberately **not** translated: tool descriptions, the server instructions,
+  the guidance under `docs/instructions/`, and the worker prompt scaffolding.
+  Those are read by a model, not by a person. They are tuned text, and a second
+  copy drifting from the first is not a cosmetic difference but a silent change
+  in how delegation behaves. Which language your agent answers *you* in is the
+  agent's decision either way, and a delegated `objective` already reaches the
+  worker verbatim in whatever language you wrote it.
+
 ## [0.1.7] - 2026-08-15
 
 ### Fixed

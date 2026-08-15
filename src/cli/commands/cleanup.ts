@@ -3,6 +3,7 @@ import { Command } from 'commander';
 import { PolicyEngine } from '../../components/policy-engine.js';
 import { RetentionPolicy, ArtifactManager } from '../../components/artifact-manager.js';
 import { expandHome } from '../utils/paths.js';
+import { t } from '../utils/i18n.js';
 
 export interface CleanupCommandOptions {
   repo?: string;
@@ -37,7 +38,7 @@ export function formatBytes(bytes: number): string {
 export function registerCleanupCommand(program: Command): void {
   program
     .command('cleanup')
-    .description('Clean up obsolete task artifact bundles based on retention policies')
+    .description(t('cli.cmd.cleanup'))
     .option('-r, --repo <path>', 'Target repository workspace path', process.cwd())
     .option('-g, --global-config <path>', 'Custom path or directory for global configuration')
     .option('-n, --dry-run', 'Simulate cleanup without deleting any artifact files')
