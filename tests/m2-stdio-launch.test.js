@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import assert from 'node:assert/strict';
 import { PACKAGE_VERSION } from './helpers/package-version.js';
+import { waitForOutput, SERVER_READY } from './helpers/wait-for.js';
 
 console.log('=== STARTING M2 STDIO LAUNCH EMPIRICAL TESTS ===');
 
@@ -140,10 +141,18 @@ async function testSigintHandling() {
       }
     });
 
-    // Give server time to connect, then send SIGINT
-    setTimeout(() => {
-      child.kill('SIGINT');
-    }, 500);
+    // Signal only once the server says it is listening. A flat 500ms was a
+    // guess, and on a loaded machine the signal landed before the handler was
+    // installed — which reads as "graceful shutdown is broken", not as "we were
+    // too early".
+    waitForOutput(child.stderr, SERVER_READY, { label: 'the server to report it is listening' })
+      .then(() => child.kill('SIGINT'))
+      .catch((err) => {
+        child.removeAllListeners('exit');
+        child.kill('SIGKILL');
+        fail('Signal handling: SIGINT graceful shutdown', err);
+        reject(err);
+      });
   });
 }
 
@@ -173,10 +182,18 @@ async function testSigtermHandling() {
       }
     });
 
-    // Give server time to connect, then send SIGTERM
-    setTimeout(() => {
-      child.kill('SIGTERM');
-    }, 500);
+    // Signal only once the server says it is listening. A flat 500ms was a
+    // guess, and on a loaded machine the signal landed before the handler was
+    // installed — which reads as "graceful shutdown is broken", not as "we were
+    // too early".
+    waitForOutput(child.stderr, SERVER_READY, { label: 'the server to report it is listening' })
+      .then(() => child.kill('SIGTERM'))
+      .catch((err) => {
+        child.removeAllListeners('exit');
+        child.kill('SIGKILL');
+        fail('Signal handling: SIGTERM graceful shutdown', err);
+        reject(err);
+      });
   });
 }
 

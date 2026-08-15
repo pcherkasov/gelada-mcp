@@ -6,6 +6,7 @@ import * as os from 'node:os';
 import { spawn } from 'node:child_process';
 
 import { ProcessSupervisor } from '../dist/components/process-supervisor.js';
+import { waitForOutput, waitUntil } from './helpers/wait-for.js';
 
 describe('ProcessSupervisor Test Suite', () => {
   let tempDir;
@@ -76,7 +77,11 @@ describe('ProcessSupervisor Test Suite', () => {
       );
 
       await new Promise((resolve) => child.on('exit', resolve));
-      await new Promise((r) => setTimeout(r, 50));
+      // The supervisor reaps on its own exit handler, so wait for the state it
+      // reaches rather than for a duration it usually takes to get there.
+      await waitUntil(() => supervisor.getActiveProcesses().length === 0, {
+        label: 'the supervisor to drop the exited process',
+      });
 
       const active = supervisor.getActiveProcesses();
       assert.equal(active.length, 0);
@@ -109,9 +114,11 @@ describe('ProcessSupervisor Test Suite', () => {
     it('should escalate to SIGKILL if process ignores SIGTERM within grace period', async () => {
       const supervisor = new ProcessSupervisor({ gracePeriodMs: 250 });
       const ignoreScript = path.join(tempDir, 'ignore-sigterm.js');
+      // Announces itself once the handler is installed, so the test can wait
+      // for that instead of assuming it fits in a fixed number of milliseconds.
       await fs.writeFile(
         ignoreScript,
-        `process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);`,
+        `process.on('SIGTERM', () => {}); setInterval(() => {}, 1000); console.log('ready');`,
       );
 
       const child = spawn(process.execPath, [ignoreScript], {
@@ -119,7 +126,9 @@ describe('ProcessSupervisor Test Suite', () => {
         detached: true,
         stdio: 'pipe',
       });
-      child.stdout.on('data', () => {});
+      const ready = waitForOutput(child.stdout, 'ready', {
+        label: 'the child to install its SIGTERM handler',
+      });
       child.stderr.on('data', () => {});
 
       supervisor.registerProcess(
@@ -128,8 +137,10 @@ describe('ProcessSupervisor Test Suite', () => {
         child,
       );
 
-      // Wait for Node.js process to initialize and register SIGTERM listener
-      await new Promise((r) => setTimeout(r, 100));
+      // Escalation can only be measured once the handler exists to ignore the
+      // signal. Signalling too early kills the child outright, and the elapsed
+      // assertion below then blames the grace period.
+      await ready;
 
       const startTime = Date.now();
       const success = await supervisor.killProcess(child.pid, 'SIGTERM');
