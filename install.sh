@@ -38,17 +38,48 @@ case "$ARCH_TYPE" in
     ;;
 esac
 
-# 3. Determine download URL
-if [ "$TAG" = "latest" ]; then
-  RELEASE_URL="https://github.com/${REPO}/releases/latest/download"
-else
-  RELEASE_URL="https://github.com/${REPO}/releases/download/${TAG}"
+if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then
+  echo "Error: Neither curl nor wget is available."
+  exit 1
 fi
 
-ARCHIVE_NAME="gelada-${TAG}-${OS}-${ARCH}.tar.gz"
-DOWNLOAD_URL="${RELEASE_URL}/${ARCHIVE_NAME}"
+# 3. Resolve the release tag
+#
+# Every asset is named after its tag (gelada-v0.1.3-darwin-arm64.tar.gz), so
+# "latest" has to become a real version before a filename can be built —
+# /releases/latest/download/ cannot help when the version is part of the name.
+# GitHub redirects /releases/latest to /releases/tag/<tag>; reading that costs no
+# API rate limit, unlike the REST endpoint.
+resolve_latest_tag() {
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSLI -o /dev/null -w '%{url_effective}' \
+      "https://github.com/${REPO}/releases/latest" | sed -n 's#.*/releases/tag/##p'
+  else
+    wget -qS --spider "https://github.com/${REPO}/releases/latest" 2>&1 |
+      sed -n 's#^[[:space:]]*Location:[[:space:]]*.*/releases/tag/\([^[:space:]]*\).*#\1#p' |
+      tail -n 1
+  fi
+}
 
-echo "Downloading Gelada MCP CLI for ${OS}-${ARCH}..."
+if [ "$TAG" = "latest" ]; then
+  TAG="$(resolve_latest_tag)"
+  if [ -z "$TAG" ]; then
+    echo "Error: Could not determine the latest Gelada release."
+    echo "Set GELADA_VERSION to a released version, e.g. GELADA_VERSION=0.1.3."
+    exit 1
+  fi
+fi
+
+# Accept both spellings; the assets are tagged with the leading v.
+case "$TAG" in
+  v*) ;;
+  *) TAG="v${TAG}" ;;
+esac
+
+ARCHIVE_NAME="gelada-${TAG}-${OS}-${ARCH}.tar.gz"
+DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${TAG}/${ARCHIVE_NAME}"
+
+echo "Downloading Gelada MCP CLI ${TAG} for ${OS}-${ARCH}..."
 echo "URL: ${DOWNLOAD_URL}"
 
 TMP_DIR="$(mktemp -d)"
@@ -56,11 +87,8 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 
 if command -v curl >/dev/null 2>&1; then
   curl -fsSL "$DOWNLOAD_URL" -o "${TMP_DIR}/${ARCHIVE_NAME}"
-elif command -v wget >/dev/null 2>&1; then
-  wget -qO "${TMP_DIR}/${ARCHIVE_NAME}" "$DOWNLOAD_URL"
 else
-  echo "Error: Neither curl nor wget is available."
-  exit 1
+  wget -qO "${TMP_DIR}/${ARCHIVE_NAME}" "$DOWNLOAD_URL"
 fi
 
 echo "Extracting archive..."

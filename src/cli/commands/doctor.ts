@@ -8,6 +8,7 @@ import { promisify } from 'node:util';
 import { getConfigDir, getDataDir, getLogDir } from '../utils/paths.js';
 import { packageVersion } from '../../utils/package-paths.js';
 import { loadWorkerModelCatalog } from '../../components/model-catalog.js';
+import { inspectRegisteredLaunchers } from '../utils/mcp-clients.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -152,6 +153,68 @@ function checkConfig(): DiagnosticCheck {
   };
 }
 
+/**
+ * Checks that the commands clients were registered with still exist.
+ *
+ * This is the one failure Gelada cannot report from inside the server, because
+ * the server never starts: the client spawns the recorded command, gets ENOENT,
+ * and shows nothing beyond "server transport closed unexpectedly". A path that
+ * was valid at setup time can stop existing later — a Homebrew node upgrade
+ * moves the interpreter, an npm prefix changes, a checkout is deleted — so the
+ * registration is worth re-reading rather than assumed good.
+ *
+ * Only absolute commands are judged. A bare name is resolved from the client's
+ * PATH, which is not the PATH this process sees, so calling it broken here would
+ * be a guess.
+ */
+function checkClientRegistrations(): DiagnosticCheck {
+  let launchers: ReturnType<typeof inspectRegisteredLaunchers>;
+  try {
+    launchers = inspectRegisteredLaunchers();
+  } catch (err: unknown) {
+    return {
+      category: 'config',
+      name: 'MCP Client Registration',
+      status: 'warn',
+      message: `Could not read client configurations: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  if (launchers.length === 0) {
+    return {
+      category: 'config',
+      name: 'MCP Client Registration',
+      status: 'warn',
+      message: 'No detected MCP client has Gelada registered',
+      details: ['Clients configured by hand, or ones Gelada does not detect, are not visible here.'],
+      remediation: 'Run "gelada setup" to register Gelada with the clients on this machine.',
+    };
+  }
+
+  const broken = launchers.filter((l) => l.commandExists === false);
+  if (broken.length > 0) {
+    return {
+      category: 'config',
+      name: 'MCP Client Registration',
+      status: 'fail',
+      message:
+        broken.length === launchers.length
+          ? `Registered launch command no longer exists (${broken.length} client${broken.length > 1 ? 's' : ''})`
+          : `${broken.length} of ${launchers.length} registrations point at a command that no longer exists`,
+      details: broken.map((l) => `${l.clientName}: ${l.command} — not found (${l.configPath})`),
+      remediation: 'Run "gelada setup" to re-register with the current interpreter path.',
+    };
+  }
+
+  return {
+    category: 'config',
+    name: 'MCP Client Registration',
+    status: 'pass',
+    message: `${launchers.length} client registration${launchers.length > 1 ? 's' : ''} resolve`,
+    details: launchers.map((l) => `${l.clientName}: ${l.command}`),
+  };
+}
+
 async function checkWorker(): Promise<DiagnosticCheck[]> {
   const command = process.env.AGY_COMMAND || 'agy';
   const checks: DiagnosticCheck[] = [];
@@ -204,7 +267,12 @@ async function checkWorker(): Promise<DiagnosticCheck[]> {
 }
 
 export async function runDiagnostics(options: { checkWorker?: boolean } = {}): Promise<DiagnosticReport> {
-  const checks: DiagnosticCheck[] = [checkNode(), await checkGit(), checkConfig()];
+  const checks: DiagnosticCheck[] = [
+    checkNode(),
+    await checkGit(),
+    checkConfig(),
+    checkClientRegistrations(),
+  ];
 
   if (options.checkWorker !== false) {
     checks.push(...(await checkWorker()));
